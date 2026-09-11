@@ -17,6 +17,8 @@ replay it is printed in the report.
   the committed plan
 - Express/Fastify route extraction that resolves receivers and mount prefixes, and reports honest
   confidence instead of guessing
+- OpenAPI ingestion (`compile --openapi`), so a target whose surface is not in source is still
+  reachable
 - Deterministic compilation that preserves hand-authored security knowledge across recompiles
 - Three deterministic oracles: **differential authorization** (BOLA), **state mutation**, and
   **metamorphic response** (client-controlled data scoping)
@@ -36,6 +38,8 @@ pnpm build
 cd path/to/your/authorized-target
 trinker init                # writes .trinker/runtime.json
 trinker compile             # extracts routes into .trinker/plan.json
+# or, when the surface is not recoverable from source:
+trinker compile --openapi openapi.json
 # Author identities, fixtures, invariants, and checks — see docs/PLAN_AUTHORING.md
 trinker run --ci --format sarif
 ```

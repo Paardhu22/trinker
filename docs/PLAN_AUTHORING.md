@@ -7,6 +7,18 @@ judgement.
 Recompiling after a code change **preserves** everything you author here. If a check's route
 disappears, compile refuses to write and names the check rather than silently dropping it.
 
+When the surface is not recoverable from source — a bundled application, or a service you only have
+a specification for — add an OpenAPI document:
+
+```bash
+trinker compile --openapi openapi.json
+```
+
+Its operations are merged with anything extracted from source; a route described by both keeps both
+source references. JSON only: a YAML document is refused with a conversion hint rather than parsed
+loosely, because a misread specification would put endpoints that do not exist into a reviewed
+security plan.
+
 ## The two files
 
 `.trinker/plan.json` is committed and reviewed. It holds routes, identities, fixtures, invariants,

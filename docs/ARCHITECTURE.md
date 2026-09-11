@@ -55,6 +55,10 @@ source. If the result would not validate — typically because a check reference
 longer exists — compile refuses to write and names the offending checks, rather than silently
 discarding reviewed security knowledge. `--force` regenerates from scratch.
 
+`--openapi <file.json>` merges a specification's operations with the extracted routes, keyed by
+method and path, so an endpoint described by both keeps every source reference and the stronger
+confidence. This is the path for any target whose surface is not in source.
+
 Route extraction resolves the receiver of a route call before believing it. `cache.get('/x')` is
 not a route. `app.use('/api/orders', router)` prefixes the routes declared on that router, across
 files where the import resolves. `confidence` reflects real certainty:

@@ -7,7 +7,7 @@ import {
 } from "@trinker/core";
 import { differentialAuthorizationOracle, metamorphicResponseOracle, stateMutationOracle } from "@trinker/oracles";
 import { createReport, type SecurityReport, writeReport } from "@trinker/report";
-import { discoverSurface } from "@trinker/surface";
+import { discoverSurface, ingestOpenApi, mergeSurfaces, type Surface } from "@trinker/surface";
 
 /** Every oracle the runner can dispatch to. A check naming anything else is reported as unavailable. */
 export const ORACLES = [differentialAuthorizationOracle, stateMutationOracle, metamorphicResponseOracle];
@@ -35,6 +35,13 @@ export async function initialiseProject(projectDir: string): Promise<{ created: 
   return { created };
 }
 
+export interface CompileOptions {
+  /** Discard authored plan content and regenerate from source. */
+  force?: boolean;
+  /** Path to an OpenAPI document whose paths are merged with the extracted routes. */
+  openApiPath?: string;
+}
+
 export interface CompileResult {
   plan: Plan;
   /** True when an existing plan's hand-authored sections were carried forward. */
@@ -51,9 +58,11 @@ export interface CompileResult {
  * meant to accumulate reviewed security knowledge, so a re-run after a code change must never
  * silently discard it. Pass `force` to regenerate from scratch.
  */
-export async function compileProject(projectDir: string, options: { force?: boolean } = {}): Promise<CompileResult> {
+export async function compileProject(projectDir: string, options: CompileOptions = {}): Promise<CompileResult> {
   await initialiseProject(projectDir);
-  const surface = await discoverSurface({ rootDir: projectDir });
+  const extracted = await discoverSurface({ rootDir: projectDir });
+  const specification = options.openApiPath === undefined ? undefined : await readOpenApi(options.openApiPath);
+  const surface = specification ? mergeSurfaces(extracted, specification.surface) : extracted;
 
   const existing = options.force === true ? undefined : await loadPlanIfPresent(projectDir);
   const previousRouteIds = new Set(existing?.surface.routes.map((route) => route.id) ?? []);
@@ -74,7 +83,13 @@ export async function compileProject(projectDir: string, options: { force?: bool
       exclusions: (existing?.coverage.exclusions ?? []).filter((exclusion) => currentRouteIds.has(exclusion.routeId)),
     },
     safety: existing?.safety ?? { mutationPolicy: "forbid" as const, allowedMethods: ["GET" as const, "HEAD" as const, "OPTIONS" as const] },
-    provenance: { sources: [{ kind: "ast" as const, path: "." }], compiler: { mode: "deterministic" as const, compilerVersion: "0.1.0" } },
+    provenance: {
+      sources: [
+        { kind: "ast" as const, path: "." },
+        ...(specification ? [{ kind: "openapi" as const, path: specification.source }] : []),
+      ],
+      compiler: { mode: "deterministic" as const, compilerVersion: "0.1.0" },
+    },
   };
   const planId = `trkp_${createHash("sha256").update(JSON.stringify(planWithoutId)).digest("hex").slice(0, 16)}`;
 
@@ -95,6 +110,39 @@ export async function compileProject(projectDir: string, options: { force?: bool
     addedRouteIds: [...currentRouteIds].filter((id) => !previousRouteIds.has(id)).sort(),
     removedRouteIds: [...previousRouteIds].filter((id) => !currentRouteIds.has(id)).sort(),
   };
+}
+
+/**
+ * Read an OpenAPI document.
+ *
+ * JSON only. A YAML specification is refused with a conversion hint rather than parsed loosely —
+ * a misread specification would put endpoints that do not exist into a reviewed security plan,
+ * which is worse than refusing the file.
+ */
+async function readOpenApi(path: string): Promise<{ surface: Surface; source: string }> {
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf8");
+  } catch {
+    throw new Error(`Could not read the OpenAPI document at ${path}`);
+  }
+  if (!raw.trimStart().startsWith("{")) {
+    throw new Error(
+      `${path} does not look like JSON. Trinker reads JSON OpenAPI documents only, because loosely parsing a specification could introduce endpoints that do not exist.\n` +
+      `Convert it first, for example:  npx js-yaml ${path} > openapi.json`,
+    );
+  }
+  let document: unknown;
+  try {
+    document = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`${path} is not valid JSON: ${error instanceof Error ? error.message : "parse error"}`);
+  }
+  const surface = ingestOpenApi(document, path);
+  if (surface.routes.length === 0) {
+    throw new Error(`${path} declared no usable operations under "paths".`);
+  }
+  return { surface, source: path };
 }
 
 async function loadPlanIfPresent(projectDir: string): Promise<Plan | undefined> {

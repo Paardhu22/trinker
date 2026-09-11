@@ -60,6 +60,18 @@ export function ingestOpenApi(document: unknown, source = "openapi"): Surface {
   return normaliseSurface(routes, ["openapi"]);
 }
 
+/**
+ * Combine surfaces from different inputs — extracted source plus an OpenAPI document, say.
+ *
+ * Routes are keyed by method and path, so an endpoint described by both a specification and the
+ * code keeps every source reference and the strongest confidence of the two.
+ */
+export function mergeSurfaces(...surfaces: Surface[]): Surface {
+  const routes = surfaces.flatMap((surface) => surface.routes);
+  const frameworks = new Set(surfaces.flatMap((surface) => surface.frameworks).filter((framework) => framework !== "unknown"));
+  return normaliseSurface(routes, frameworks.size > 0 ? [...frameworks].sort() : ["unknown"]);
+}
+
 export async function discoverSurface(options: DiscoverOptions): Promise<Surface> {
   const files = await sourceFiles(options.rootDir, options.include ?? /\.[cm]?[jt]sx?$/);
   const extractions = await Promise.all(files.map(async (file) => extractFile(await readFile(join(options.rootDir, file), "utf8"), file)));

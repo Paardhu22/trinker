@@ -27,8 +27,9 @@ const USAGE = `trinker - deterministic application security testing
 
   trinker                       interactive console (requires a TTY)
   trinker init                  create .trinker/runtime.json
-  trinker compile [--force]     extract routes into .trinker/plan.json
-                                (preserves authored checks unless --force)
+  trinker compile [options]     extract routes into .trinker/plan.json
+      --force                   discard authored checks and regenerate
+      --openapi <file.json>     also ingest an OpenAPI document
   trinker coverage [--ci]       planned vs verified route coverage
   trinker run [options]         execute the plan
   trinker verify <finding-id>   replay the check behind a confirmed finding
@@ -62,7 +63,13 @@ async function main(): Promise<void> {
   }
 
   if (command === "compile") {
-    const { plan, merged, addedRouteIds, removedRouteIds } = await compileProject(projectDir, { force: args.includes("--force") });
+    const openApiIndex = args.indexOf("--openapi");
+    const openApiPath = openApiIndex >= 0 ? args[openApiIndex + 1] : undefined;
+    if (openApiIndex >= 0 && openApiPath === undefined) throw new Error("Usage: trinker compile --openapi <file.json>");
+    const { plan, merged, addedRouteIds, removedRouteIds } = await compileProject(projectDir, {
+      force: args.includes("--force"),
+      ...(openApiPath !== undefined ? { openApiPath } : {}),
+    });
     write(`Compiled ${plan.surface.routes.length} routes to .trinker/plan.json (${plan.planId}). Runtime LLM tokens: 0`);
     if (merged) {
       write(`Preserved ${plan.checks.length} check(s), ${plan.invariants.length} invariant(s), ${plan.identities.length} identity/identities.`);

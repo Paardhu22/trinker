@@ -121,3 +121,77 @@ describe("recompilation preserves authored security knowledge", () => {
     await expect(compileProject(project)).rejects.toThrow(/invalid.*--force/s);
   });
 });
+
+describe("OpenAPI ingestion", () => {
+  const spec = {
+    openapi: "3.0.0",
+    paths: {
+      "/api/orders/{id}": { get: { operationId: "getOrder" }, delete: { operationId: "deleteOrder" } },
+      "/api/reports": { get: { operationId: "listReports" } },
+    },
+  };
+
+  it("merges specification routes with routes extracted from source", async () => {
+    const project = await newProject();
+    await writeFile(join(project, "app.ts"), "import express from 'express';\nconst app = express();\napp.get('/api/health', handler);\n");
+    await writeFile(join(project, "openapi.json"), JSON.stringify(spec));
+
+    const { plan } = await compileProject(project, { openApiPath: join(project, "openapi.json") });
+    const routes = plan.surface.routes.map((route) => `${route.method} ${route.pathTemplate}`).sort();
+    expect(routes).toEqual(["DELETE /api/orders/:id", "GET /api/health", "GET /api/orders/:id", "GET /api/reports"]);
+  });
+
+  it("records the specification in provenance", async () => {
+    const project = await newProject();
+    await writeFile(join(project, "openapi.json"), JSON.stringify(spec));
+    const { plan } = await compileProject(project, { openApiPath: join(project, "openapi.json") });
+    expect(plan.provenance.sources.some((source) => source.kind === "openapi")).toBe(true);
+  });
+
+  it("keeps both source references when a route appears in the code and the specification", async () => {
+    const project = await newProject();
+    await writeFile(join(project, "app.ts"), "import express from 'express';\nconst app = express();\napp.get('/api/reports', handler);\n");
+    await writeFile(join(project, "openapi.json"), JSON.stringify(spec));
+
+    const { plan } = await compileProject(project, { openApiPath: join(project, "openapi.json") });
+    const route = plan.surface.routes.find((candidate) => candidate.pathTemplate === "/api/reports");
+    expect(route?.sourceRefs.map((ref) => ref.kind).sort()).toEqual(["ast", "openapi"]);
+  });
+
+  it("works for a project with no extractable source at all", async () => {
+    const project = await newProject();
+    await writeFile(join(project, "openapi.json"), JSON.stringify(spec));
+    const { plan } = await compileProject(project, { openApiPath: join(project, "openapi.json") });
+    expect(plan.surface.routes).toHaveLength(3);
+    expect(plan.coverage.inScopeRouteIds).toHaveLength(3);
+  });
+
+  it("refuses a YAML specification with a conversion hint rather than misparsing it", async () => {
+    const project = await newProject();
+    await writeFile(join(project, "openapi.yaml"), "openapi: 3.0.0\npaths:\n  /api/x:\n    get: {}\n");
+    await expect(compileProject(project, { openApiPath: join(project, "openapi.yaml") }))
+      .rejects.toThrow(/does not look like JSON.*js-yaml/s);
+  });
+
+  it("reports a missing file, malformed JSON, and an empty specification distinctly", async () => {
+    const project = await newProject();
+    await expect(compileProject(project, { openApiPath: join(project, "absent.json") })).rejects.toThrow(/Could not read/);
+    await writeFile(join(project, "broken.json"), "{ not json");
+    await expect(compileProject(project, { openApiPath: join(project, "broken.json") })).rejects.toThrow(/not valid JSON/);
+    await writeFile(join(project, "empty.json"), JSON.stringify({ openapi: "3.0.0", paths: {} }));
+    await expect(compileProject(project, { openApiPath: join(project, "empty.json") })).rejects.toThrow(/no usable operations/);
+  });
+
+  it("still preserves authored checks when recompiling with a specification", async () => {
+    const project = await newProject();
+    await writeFile(join(project, "app.ts"), "import express from 'express';\nconst app = express();\napp.get('/api/orders/:id', handler);\n");
+    await compileProject(project);
+    await authorChecks(project);
+    await writeFile(join(project, "openapi.json"), JSON.stringify(spec));
+
+    const { plan, merged } = await compileProject(project, { openApiPath: join(project, "openapi.json") });
+    expect(merged).toBe(true);
+    expect(plan.checks.map((check) => check.id)).toEqual(["chk_auth"]);
+    expect(plan.surface.routes.length).toBeGreaterThan(1);
+  });
+});

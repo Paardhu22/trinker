@@ -68,7 +68,7 @@ dependency graph (§4, §13).
 |---|---|---|---|---|---|
 | `core` | `@trinker/core` | 834 | 741 | schemas, safety, bindings, runner, events, findings, coverage | **Active** |
 | `trinker` | `trinker` | 951 | 296 | CLI, TUI, scan-view reducer, workflow adapter | **Active** |
-| `surface` | `@trinker/surface` | 466 | 242 | AST extraction, mount resolution, OpenAPI ingest | **Active** |
+| `surface` | `@trinker/surface` | 475 | 242 | AST extraction, mount resolution, OpenAPI ingest + merge | **Active** |
 | `oracles` | `@trinker/oracles` | 414 | 468 | three deterministic oracles | **Active** |
 | `report` | `@trinker/report` | 167 | 105 | JSON / Markdown / SARIF | **Active** |
 | `compiler` | `@trinker/compiler` | 364 | 254 | LLM boundary: proposal contract, validation, budget | **Built, no provider** |
@@ -534,13 +534,16 @@ asserting exit 1, exactly one finding of the right title, the negative control p
 inconclusive/errored/unavailable checks, a replay command matching the finding ID, and no JWT
 anywhere in the report. The assertion script was validated against a real report before commit.
 
-**Never executed on GitHub** — the workflow is committed but no push has triggered a run yet.
+**Verified green on GitHub** (run `34570117287`, commit `a2c16d1`). Both jobs passed end to end,
+including starting the container, scanning, asserting the outcome, and replaying the finding.
+`pnpm install` / `typecheck` / `test` / `build` all succeed there, confirming the documented
+commands are correct and the local `pnpm` gap is purely a local environment issue.
 
 ### Known failures
 
 1. `pnpm` unavailable locally — documented commands fail as written.
 2. `trinker` not linked on PATH — use `node packages/trinker/dist/cli.js`.
-3. CI has not actually run yet.
+3. None outstanding in CI — both jobs are green.
 
 ---
 
@@ -565,8 +568,10 @@ ESLint, no formatter.
 response, potentially PII. Credential *headers* and known secret *values* are masked; body content
 is not. Reports are gitignored, but this deserves a policy knob.
 
-**I-6 · No OpenAPI CLI path.** `ingestOpenApi()` exists and is tested but is unreachable from the
-CLI — the cheapest available win for targets whose surface is not in source.
+**I-6 · OpenAPI is JSON-only.** `compile --openapi` refuses YAML with a conversion hint, because
+adding a YAML parser needs a dependency (and `pnpm` is unavailable locally to update the lockfile
+that CI installs with `--frozen-lockfile`). Most real specifications are YAML, so this is the
+obvious follow-up.
 
 **I-7 · State-mutation is destructive and unrestored.** Inherent, documented in the finding, but
 there is no cleanup hook or dry-run mode.
@@ -638,16 +643,12 @@ there is no cleanup hook or dry-run mode.
 
 ### P0 — must do next
 
-**P0-1 · Push and confirm CI actually passes.** *(~15 min)*
-The workflow is committed but has never run. Push, watch both jobs, fix whatever the runner
-disagrees with (most likely: Docker service startup timing, or `pnpm install --frozen-lockfile`
-against the committed lockfile). Until it goes green once, CI is an untested claim.
+**P0-1 · ~~Confirm CI passes~~ — DONE.** Both jobs are green on GitHub (run `34570117287`),
+including the full Juice Shop end-to-end.
 
-**P0-2 · Wire OpenAPI into the CLI.** *(~1–2 h)*
-`ingestOpenApi()` is implemented and tested but unreachable. Add
-`trinker compile --openapi <file>` that merges spec routes with AST routes. This is the highest
-value-per-hour item left: it unblocks every target whose surface is not recoverable from source —
-the exact reason Juice Shop needed a hand-written plan.
+**P0-2 · ~~Wire OpenAPI into the CLI~~ — DONE.** `trinker compile --openapi <file.json>` merges a
+specification with extracted routes. JSON only; YAML is refused with a conversion hint rather than
+parsed loosely. A project with no extractable source now produces a usable plan.
 
 **P0-3 · Decide the fate of the orphan packages.** *(~30 min)*
 Either delete `@trinker/probes` and `@trinker/vitest`, or give them a real first slice. Two 2-line
@@ -800,13 +801,8 @@ Suite: **9 → 230 tests**. Typecheck clean, all 8 packages build, 17 commits.
 
 ### What the next session should do first
 
-**Push and get CI green (P0-1).** The workflow has never executed. Everything else in this handoff
-is verified locally; CI is the one claim resting on inspection rather than observation. Expect to
-fix Docker startup timing or the frozen-lockfile install.
-
-**Then wire OpenAPI into the CLI (P0-2)** — `ingestOpenApi()` is already implemented and tested but
-unreachable, and it is what unblocks targets whose surface is not in source. That is the highest
-value-per-hour work remaining.
+**Decide the fate of the orphan packages (P0-3)**, then pick up P1. CI is green and OpenAPI
+ingestion is wired, so the foundation is verified by observation rather than inspection.
 
 **Do not start a provider implementation before P0-1 and P0-2.** The gate it needs is built and
 tested; what is missing is reach into real applications, not more LLM surface area.
