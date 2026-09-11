@@ -48,7 +48,7 @@ describe("the scan path cannot reach an LLM", () => {
   it.each(RUNTIME_PACKAGES)("%s carries no LLM provider dependency", async (name) => {
     const dependencies = Object.keys((await manifest(name)).dependencies ?? {});
     for (const dependency of dependencies) {
-      expect(dependency).not.toMatch(/anthropic|openai|@ai-sdk|langchain|cohere|mistral|google-genai/i);
+      expect(dependency).not.toMatch(/^(openai|@openai\/)|anthropic|@ai-sdk|langchain|cohere|mistral|google-genai/i);
     }
   });
 
@@ -77,9 +77,18 @@ describe("the CLI reaches the compiler only on the LLM path", () => {
   });
 
   it("carries no direct provider SDK dependency outside the compiler", async () => {
+    // Every provider SDK lives in @trinker/compiler, which the CLI loads only by dynamic import.
     const dependencies = Object.keys((await manifest("trinker")).dependencies ?? {});
     for (const dependency of dependencies) {
-      expect(dependency).not.toMatch(/anthropic|openai|@ai-sdk|langchain|cohere|mistral|google-genai/i);
+      expect(dependency).not.toMatch(/^(openai|@openai\/)|anthropic|@ai-sdk|langchain|cohere|mistral|google-genai/i);
+    }
+  });
+
+  it("never imports a provider SDK outside the compiler package", async () => {
+    for (const name of [...RUNTIME_PACKAGES, "trinker", "vitest"]) {
+      for (const source of await sourceFiles(name)) {
+        expect(source, `${name} imports a provider SDK directly`).not.toMatch(/from "(openai|@anthropic-ai\/sdk)"/);
+      }
     }
   });
 });

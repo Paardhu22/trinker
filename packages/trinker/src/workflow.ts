@@ -149,6 +149,8 @@ async function readOpenApi(path: string): Promise<{ surface: Surface; source: st
 /* ------------------------------------------------------- LLM-assisted compilation */
 
 export interface LlmCompileOptions {
+  /** Which provider authors the proposal. Defaults to openai. */
+  provider?: string | undefined;
   /** Read from the environment by the caller. Never sourced from, or written to, the plan. */
   apiKey?: string | undefined;
   model?: string | undefined;
@@ -158,7 +160,7 @@ export interface LlmCompileOptions {
   apply?: boolean;
   timeoutMs?: number | undefined;
   /** Injected by tests so the whole flow runs without an API key or a network. */
-  provider?: unknown;
+  compilerProvider?: unknown;
   openApiPath?: string | undefined;
 }
 
@@ -172,6 +174,11 @@ export interface LlmCompileResult {
   /** True when `.trinker/plan.json` was actually rewritten. */
   applied: boolean;
   proposalPath: string;
+  /**
+   * False when the surface could not be re-derived from source and the committed plan was used
+   * as-is — normal for a hand-declared or OpenAPI-derived surface.
+   */
+  surfaceRefreshed: boolean;
 }
 
 /**
@@ -187,15 +194,29 @@ export interface LlmCompileResult {
  * artifact on the strength of a model's suggestion is exactly what this project exists to avoid.
  */
 export async function llmCompileProject(projectDir: string, options: LlmCompileOptions): Promise<LlmCompileResult> {
-  const { compileWithProvider, createAnthropicProvider } = await import("@trinker/compiler");
+  const { compileWithProvider, selectProvider } = await import("@trinker/compiler");
 
-  // Refresh the surface first; this also preserves everything a human authored.
-  const { plan } = await compileProject(projectDir, {
-    ...(options.openApiPath !== undefined ? { openApiPath: options.openApiPath } : {}),
-  });
+  // Refresh the surface first, so the model reasons about current routes; this also preserves
+  // everything a human authored.
+  //
+  // A plan whose surface was hand-declared or ingested from a specification cannot be re-derived
+  // from source, and compileProject rightly refuses to write a plan that would strand its checks.
+  // That must not block the compiler: fall back to the committed plan and say the surface is
+  // stale, rather than either failing or quietly discarding the routes the checks depend on.
+  let surfaceRefreshed = true;
+  let plan: Plan;
+  try {
+    ({ plan } = await compileProject(projectDir, {
+      ...(options.openApiPath !== undefined ? { openApiPath: options.openApiPath } : {}),
+    }));
+  } catch {
+    plan = await loadPlan(projectDir);
+    surfaceRefreshed = false;
+  }
 
-  const provider = (options.provider as Parameters<typeof compileWithProvider>[0]["provider"] | undefined)
-    ?? createAnthropicProvider({
+  const provider = (options.compilerProvider as Parameters<typeof compileWithProvider>[0]["provider"] | undefined)
+    ?? selectProvider({
+      provider: options.provider ?? "openai",
       apiKey: options.apiKey ?? "",
       model: options.model,
       timeoutMs: options.timeoutMs,
@@ -228,6 +249,7 @@ export async function llmCompileProject(projectDir: string, options: LlmCompileO
     record: result.record as unknown as Record<string, unknown>,
     applied,
     proposalPath: proposalPath(projectDir),
+    surfaceRefreshed,
   };
 }
 

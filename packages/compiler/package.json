@@ -20,6 +20,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
     "@trinker/core": "workspace:*",
+    "openai": "^7.15.0",
     "zod": "^3.24.3"
   }
 }

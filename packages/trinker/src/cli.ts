@@ -31,8 +31,9 @@ const USAGE = `trinker - deterministic application security testing
       --force                   discard authored checks and regenerate
       --openapi <file.json>     also ingest an OpenAPI document
       --llm                     ALSO ask a model to propose checks (opt-in, costs tokens)
+      --provider <name>         openai (default) or anthropic
       --token-budget <n>        max tokens one LLM compilation may spend (default 60000)
-      --model <id>              model to compile with (default claude-opus-5)
+      --model <id>              model to compile with (provider default if omitted)
       --apply                   with --llm, write the merged plan instead of only proposing
   trinker coverage [--ci]       planned vs verified route coverage
   trinker run [options]         execute the plan
@@ -74,11 +75,23 @@ function numericFlag(name: string, fallback: number): number {
  * so a model's suggestion becomes one by a human's decision, not by running a command.
  */
 async function compileWithLlm(openApiPath: string | undefined): Promise<void> {
-  const apiKey = process.env["ANTHROPIC_API_KEY"] ?? "";
+  const { API_KEY_ENV, isProviderName, PROVIDER_NAMES } = await import("@trinker/compiler");
+
+  const providerIndex = args.indexOf("--provider");
+  const provider = providerIndex >= 0 ? args[providerIndex + 1] : "openai";
+  if (provider === undefined || !isProviderName(provider)) {
+    throw new Error(`Unknown provider "${provider ?? ""}". Available: ${PROVIDER_NAMES.join(", ")}.`);
+  }
+
+  const keyVariable = API_KEY_ENV[provider];
+  const apiKey = process.env[keyVariable] ?? "";
+  if (apiKey === "") throw new Error(`${keyVariable} is not set. Export it before using \`trinker compile --llm --provider ${provider}\`.`);
+
   const modelIndex = args.indexOf("--model");
   const apply = args.includes("--apply");
 
   const result = await llmCompileProject(projectDir, {
+    provider,
     apiKey,
     ...(modelIndex >= 0 && args[modelIndex + 1] !== undefined ? { model: args[modelIndex + 1] } : {}),
     tokenBudget: numericFlag("--token-budget", DEFAULT_TOKEN_BUDGET),
@@ -88,6 +101,10 @@ async function compileWithLlm(openApiPath: string | undefined): Promise<void> {
 
   const record = result.record as Record<string, number | string>;
   write(`Compiled with ${record["provider"]} (prompt ${record["promptVersion"]}).`);
+  if (!result.surfaceRefreshed) {
+    write("Surface was NOT re-derived from source; the committed plan's routes were used as-is.");
+    write("(Normal for a hand-declared or OpenAPI-derived surface.)");
+  }
   write(`Tokens: ${record["inputTokens"]} in + ${record["outputTokens"]} out = ${record["totalTokens"]} of ${record["tokenBudget"]} budget.`);
   write(`Checks: ${record["checksProposed"]} proposed, ${record["checksAccepted"]} accepted, ${record["checksRejected"]} rejected, over ${record["routesConsidered"]} route(s).`);
   write("");
