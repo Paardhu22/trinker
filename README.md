@@ -26,6 +26,7 @@ replay it is printed in the report.
 - A replayable typed event stream, consumed identically by CI and the terminal console
 - JSON, Markdown, and SARIF reports that state whether the scan can be trusted
 - A keyboard-driven console with live scan progress and finding evidence
+- Assertions for running a scan inside your own test suite (`@trinker/vitest`)
 - An end-to-end [OWASP Juice Shop evaluation](examples/juice-shop/README.md) that confirms a real
   BOLA and passes a negative control
 
@@ -75,13 +76,26 @@ authorized to test.
 ## Development
 
 ```bash
-pnpm test        # 189 tests
+pnpm test        # 255 tests
 pnpm typecheck
 pnpm build
 ```
 
-If `pnpm` is unavailable, the workspace binaries work directly:
-`./node_modules/.bin/vitest run` and `./node_modules/.bin/tsc --noEmit`.
+If `pnpm` is not installed, `npx pnpm@10.19.0 <script>` works, as do the workspace binaries
+directly (`./node_modules/.bin/vitest run`).
+
+### Running Trinker inside your own suite
+
+```ts
+import { assertSecure } from "@trinker/vitest";
+
+it("has no authorization flaws", async () => {
+  assertSecure(await scan());  // fails on a finding AND on a check that never ran
+});
+```
+
+`assertSecure` checks completeness before findings, because "no findings" from a scan that executed
+nothing is the failure this framework exists to prevent.
 
 ## Documentation
 

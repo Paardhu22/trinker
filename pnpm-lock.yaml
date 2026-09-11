@@ -42,8 +42,6 @@ importers:
         specifier: workspace:*
         version: link:../core
 
-  packages/probes: {}
-
   packages/report:
     dependencies:
       '@trinker/core':
@@ -74,7 +72,11 @@ importers:
         specifier: workspace:*
         version: link:../surface
 
-  packages/vitest: {}
+  packages/vitest:
+    dependencies:
+      '@trinker/core':
+        specifier: workspace:*
+        version: link:../core
 
 packages:
 

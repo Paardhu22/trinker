@@ -9,6 +9,7 @@ export default defineConfig({
       "@trinker/core": fromRoot("./packages/core/src/index.ts"),
       "@trinker/oracles": fromRoot("./packages/oracles/src/index.ts"),
       "@trinker/report": fromRoot("./packages/report/src/index.ts"),
+      "@trinker/vitest": fromRoot("./packages/vitest/src/index.ts"),
       "@trinker/surface": fromRoot("./packages/surface/src/index.ts"),
     },
   },
