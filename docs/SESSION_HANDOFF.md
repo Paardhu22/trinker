@@ -270,8 +270,10 @@ identity measuring real denial behaviour; confirms only on **status + full-body 
 An unexplained 2xx is `inconclusive`.
 
 **State mutation** — baseline read, control reads proving stability, unauthorized write, re-read.
-Confirms only when a `protectedPath` **value changed**. A 200 that changed nothing is `passed`.
-Drifting state is `inconclusive`.
+Confirms only when a `protectedPath` **value changed**. A **2xx that changed nothing is
+`inconclusive`**, not `passed`: it cannot distinguish a rejected write from one that set the value
+it already had. A pass requires the server to have actually refused the write. Drifting state is
+`inconclusive`.
 
 **Metamorphic response** — reference variant repeated as a determinism control, then variants
 compared under a declared `identical` / `status-identical` relation. Catches client-controlled data
@@ -329,7 +331,8 @@ See §6.
 
 ### Juice Shop — ✅
 
-See §8. Real container, real finding, real replay, plus a passing negative control.
+See §8. Real container, **two** real findings from **two** oracles, real replay, plus a passing
+negative control. `metamorphic-response` has still only run against fixtures.
 
 ### LLM compiler — 🟡 boundary built, no provider
 
@@ -448,7 +451,7 @@ Progress is derived only from real events — it never advances on a timer.
 | oracle | confirms | evidence required for CONFIRMED |
 |---|---|---|
 | **Differential Authorization** | Broken Object Level Authorization (high) | denied identity's response matched an allowed witness on **both** status **and** full-body sha256, after calibration measured real denial behaviour |
-| **State Mutation** | Unauthorized State Mutation (high) | a `protectedPath` **value changed** after an unauthorized write, having first been proven stable across control reads. The mutation's status code is explicitly *not* evidence |
+| **State Mutation** | Unauthorized State Mutation (high) | a `protectedPath` **value changed** after an unauthorized write, having first been proven stable across control reads. The mutation's status code is explicitly *not* evidence; a 2xx with no change is inconclusive |
 | **Metamorphic Response** | response depends on a caller-supplied parameter (high) | a variant violated the declared relation on an endpoint first proven deterministic, all variants sent as the same identity |
 
 Never sufficient: a status match alone, a similar body, a 2xx that changed nothing, a difference on
@@ -483,18 +486,18 @@ were verified through it: `install --frozen-lockfile`, `typecheck`, `test`, `bui
 ### Commands that work
 
 ```bash
-npx pnpm@10.19.0 test                              # the documented path; 255 tests
+npx pnpm@10.19.0 test                              # the documented path; 257 tests
 ./node_modules/.bin/vitest run                     # same suite from the root, ~1.1s
 (cd packages/<name> && ../../node_modules/.bin/tsc --noEmit)   # clean, all 8
 (cd packages/<name> && ../../node_modules/.bin/tsup src/index.ts --format esm --dts)
 node packages/trinker/dist/cli.js <command>        # `trinker` is not linked on PATH
 ```
 
-### Test status — ✅ 255/255 (17 files)
+### Test status — ✅ 257/257 (17 files)
 
 ```
 core            96   (architecture 15, safety 20, runner 20, bindings 17, coverage 10, events 8, schema 6)
-oracles         40   (state-mutation 19, differential-auth 12, metamorphic 9)
+oracles         42   (state-mutation 21, differential-auth 12, metamorphic 9)
 surface         34   (extract 26, discover 8)
 trinker         32   (scan-view 17, workflow 15)
 compiler        26
@@ -502,7 +505,7 @@ vitest          18
 report           9
 ```
 
-Grew from **9 → 255** across two sessions. `safety.ts` went from zero coverage to 20 tests.
+Grew from **9 → 257** across two sessions. `safety.ts` went from zero coverage to 20 tests.
 
 ### Typecheck / build — ✅ clean, all 8 packages
 
@@ -524,20 +527,24 @@ trinker run               # exit 1
 trinker verify TRK-0001   # exit 1 — reproduced
 ```
 
-Actual result against a live container:
+Actual result against a freshly seeded container:
 
 ```
-checks: {"planned":2,"passed":1,"failed":1,"inconclusive":0,"errored":0,"unavailable":0}
-finding: TRK-0001 Broken Object Level Authorization
-replay:  trinker verify TRK-0001
-coverage: planned 100%, verified 100%
+checks: {"planned":3,"passed":1,"failed":2,"inconclusive":0,"errored":0,"unavailable":0}
+TRK-0001  Differential Authorization  Broken Object Level Authorization
+TRK-0002  State Mutation              Unauthorized State Mutation
 JWT leaked: false
 ```
 
-Both directions in one run: `chk_basket_cross_customer` **confirms** the real BOLA (any
-authenticated customer reads any basket, byte-identical), `chk_basket_requires_auth` **passes**
+Three checks, two oracles, both directions: `chk_basket_cross_customer` confirms the BOLA (another
+customer reads your basket, byte-identical), `chk_basket_item_cross_customer_write` confirms that
+another customer can change an item in your basket, and `chk_basket_requires_auth` **passes**
 (anonymous correctly refused with 401). The negative control matters — a scanner that only ever
 fires proves nothing.
+
+> **Run against a fresh container.** The state-mutation check writes and does not restore. A second
+> run finds the value already set and reports **inconclusive** by design. CI seeds a new container
+> every run, which is what keeps it deterministic there.
 
 ### CI
 
@@ -585,8 +592,10 @@ adding a YAML parser needs a dependency (and `pnpm` is unavailable locally to up
 that CI installs with `--frozen-lockfile`). Most real specifications are YAML, so this is the
 obvious follow-up.
 
-**I-7 · State-mutation is destructive and unrestored.** Inherent, documented in the finding, but
-there is no cleanup hook or dry-run mode.
+**I-7 · State-mutation is destructive and unrestored.** Inherent to testing whether a write is
+possible. The finding says so, and a re-run against already-mutated state is now reported
+`inconclusive` rather than `passed`. Still missing: a cleanup hook or dry-run mode. CI sidesteps it
+by seeding a fresh container each run.
 
 ### Low
 
@@ -813,10 +822,11 @@ Suite: **9 → 230 tests**. Typecheck clean, all 8 packages build, 17 commits.
 
 ### What the next session should do first
 
-**Point a second oracle at Juice Shop (P1-1).** `state-mutation` and `metamorphic-response` are
-covered by unit tests and fixtures but have never run against real software; only
-`differential-authorization` has. `PUT /api/Users/:id` (mass assignment) is a good candidate. All
-P0 items are closed, CI is green, and every claim in this document is verified by observation.
+**Point `metamorphic-response` at a real Juice Shop endpoint.** It is the only oracle that has
+never run against real software — `differential-authorization` and `state-mutation` both now
+confirm real flaws there. A list endpoint taking a filter or scoping parameter is the natural
+candidate. All P0 items are closed and CI is green, so every claim in this document is verified by
+observation rather than inspection.
 
 **Do not start a provider implementation before P0-1 and P0-2.** The gate it needs is built and
 tested; what is missing is reach into real applications, not more LLM surface area.
