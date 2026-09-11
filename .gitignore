@@ -1,7 +1,13 @@
 node_modules/
 dist/
 coverage/
-.trinker/runtime.json
-.trinker/reports/
-.trinker/events/
-.trinker/cache/
+
+# Local scan state. These patterns are deliberately unanchored (**/) so a Trinker project
+# nested anywhere in the tree — an example, a fixture, a vendored target — is covered too.
+# `.trinker/plan.json` is intentionally NOT ignored: the plan is a reviewable security artifact
+# and is meant to be committed and diffed.
+**/.trinker/runtime.json
+**/.trinker/latest-report.json
+**/.trinker/reports/
+**/.trinker/events/
+**/.trinker/cache/

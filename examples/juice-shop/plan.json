@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "planId": "trkp_juiceshop_basket_v1",
+  "surfaceDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "target": {
+    "applicationId": "owasp-juice-shop",
+    "allowedTargetRefs": ["local"]
+  },
+  "surface": {
+    "frameworks": ["unknown"],
+    "routes": [
+      {
+        "id": "route_get_rest_basket_id_juiceshop",
+        "method": "GET",
+        "pathTemplate": "/rest/basket/:id",
+        "parameters": [{ "name": "id", "location": "path", "required": true }],
+        "sourceRefs": [
+          {
+            "kind": "manual",
+            "path": "examples/juice-shop/README.md",
+            "note": "Hand-declared. Juice Shop serves a bundled API that the source extractor cannot reach."
+          }
+        ],
+        "confidence": "high"
+      }
+    ],
+    "resources": [
+      {
+        "id": "resource_basket",
+        "name": "basket",
+        "routeParameter": "id",
+        "routeIds": ["route_get_rest_basket_id_juiceshop"],
+        "sourceRefs": []
+      }
+    ]
+  },
+  "identities": [
+    {
+      "id": "identity_basket_owner",
+      "credentialRef": "basket_owner",
+      "roles": ["customer"],
+      "capabilities": ["read-own-basket"]
+    },
+    {
+      "id": "identity_other_customer",
+      "credentialRef": "other_customer",
+      "roles": ["customer"],
+      "capabilities": []
+    },
+    {
+      "id": "identity_anonymous",
+      "roles": [],
+      "capabilities": []
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "fixture_owned_basket",
+      "runtimeRef": "ownedBasket",
+      "resourceId": "resource_basket",
+      "ownerIdentityId": "identity_basket_owner"
+    }
+  ],
+  "invariants": [
+    {
+      "id": "inv_basket_owner_only",
+      "kind": "authorization",
+      "statement": "A basket may only be read by the customer who owns it.",
+      "routeIds": ["route_get_rest_basket_id_juiceshop"],
+      "resourceId": "resource_basket",
+      "provenance": "manual"
+    },
+    {
+      "id": "inv_basket_requires_auth",
+      "kind": "authorization",
+      "statement": "A basket may only be read by an authenticated customer.",
+      "routeIds": ["route_get_rest_basket_id_juiceshop"],
+      "resourceId": "resource_basket",
+      "provenance": "manual"
+    }
+  ],
+  "checks": [
+    {
+      "id": "chk_basket_cross_customer",
+      "invariantId": "inv_basket_owner_only",
+      "enabled": true,
+      "oracle": "differential-authorization",
+      "request": {
+        "routeId": "route_get_rest_basket_id_juiceshop",
+        "pathBindings": { "id": { "fixtureRef": "fixture_owned_basket", "field": "id" } },
+        "queryBindings": {},
+        "headerBindings": {}
+      },
+      "allowedIdentityIds": ["identity_basket_owner"],
+      "deniedIdentityIds": ["identity_other_customer"],
+      "calibration": { "trials": 3 }
+    },
+    {
+      "id": "chk_basket_requires_auth",
+      "invariantId": "inv_basket_requires_auth",
+      "enabled": true,
+      "oracle": "differential-authorization",
+      "request": {
+        "routeId": "route_get_rest_basket_id_juiceshop",
+        "pathBindings": { "id": { "fixtureRef": "fixture_owned_basket", "field": "id" } },
+        "queryBindings": {},
+        "headerBindings": {}
+      },
+      "allowedIdentityIds": ["identity_basket_owner"],
+      "deniedIdentityIds": ["identity_anonymous"],
+      "calibration": { "trials": 3 }
+    }
+  ],
+  "coverage": {
+    "inScopeRouteIds": ["route_get_rest_basket_id_juiceshop"],
+    "exclusions": []
+  },
+  "safety": {
+    "mutationPolicy": "forbid",
+    "allowedMethods": ["GET", "HEAD", "OPTIONS"]
+  },
+  "provenance": {
+    "sources": [
+      {
+        "kind": "manual",
+        "path": "examples/juice-shop/README.md",
+        "note": "Authored by hand against a local Juice Shop container for evaluation."
+      }
+    ],
+    "compiler": { "mode": "manual", "compilerVersion": "0.1.0" }
+  }
+}
