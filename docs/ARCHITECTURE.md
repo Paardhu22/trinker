@@ -22,9 +22,14 @@ Dependencies point inward. `@trinker/core` imports only `zod` and Node builtins 
 about the terminal, the `.trinker/` directory layout, or the CLI. Every security decision lives in
 core or in an oracle.
 
-`@trinker/compiler` is the reserved LLM boundary and is deliberately *not* a dependency of core,
-oracles, or report. That direction is what makes "a scan costs zero tokens" enforceable by the
-dependency graph rather than by convention. It currently holds only a token budget guard.
+`@trinker/compiler` is the LLM boundary and is deliberately *not* a dependency of core, oracles,
+report, or surface. That direction is what makes "a scan costs zero tokens" enforceable by the
+dependency graph rather than by convention. The CLI reaches it only through a dynamic import on the
+`compile --llm` path, so a scan never loads a model client at all;
+`packages/core/test/architecture.test.ts` fails if either rule is broken.
+
+It holds the versioned compiler prompt, the context builder, the token budget, the proposal
+contract, and the Claude provider. See [the LLM compiler](LLM_COMPILER.md).
 
 ## The Two Files
 
