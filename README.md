@@ -27,8 +27,8 @@ replay it is printed in the report.
 - JSON, Markdown, and SARIF reports that state whether the scan can be trusted
 - A keyboard-driven console with live scan progress and finding evidence
 - Assertions for running a scan inside your own test suite (`@trinker/vitest`)
-- An opt-in [LLM compiler](docs/LLM_COMPILER.md) that proposes checks — validated deterministically
-  before anything reaches a plan, and never involved in a scan
+- An opt-in [LLM compiler](docs/LLM_COMPILER.md) (OpenAI or Anthropic) that proposes checks —
+  validated deterministically before anything reaches a plan, and never involved in a scan
 - An end-to-end [OWASP Juice Shop evaluation](examples/juice-shop/README.md) that confirms a real
   BOLA and passes a negative control
 
@@ -84,7 +84,7 @@ authorized to test.
 ## Development
 
 ```bash
-pnpm test        # 321 tests
+pnpm test        # 370 tests
 pnpm typecheck
 pnpm build
 ```

@@ -22,7 +22,7 @@ application source
 ## Usage
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+export OPENAI_API_KEY=sk-proj-...          # or ANTHROPIC_API_KEY for --provider anthropic
 
 # Propose. Writes .trinker/proposal.json and prints the diff. plan.json is NOT touched.
 trinker compile --llm --token-budget 60000
@@ -34,19 +34,36 @@ trinker compile --llm --token-budget 60000 --apply
 | flag | meaning |
 |---|---|
 | `--llm` | opt in. Without it, `compile` is entirely deterministic and free. |
+| `--provider <name>` | `openai` (default) or `anthropic`. |
 | `--token-budget <n>` | hard ceiling for one compilation. Default 60000. |
-| `--model <id>` | default `claude-opus-5`. |
+| `--model <id>` | provider default if omitted. |
 | `--apply` | write the merged plan. Without it nothing is written to `plan.json`. |
 
 `trinker run` has no `--llm` flag and never contacts a provider.
+
+## Providers
+
+| provider | key | default model | price (in/out per MTok) |
+|---|---|---|---|
+| `openai` (default) | `OPENAI_API_KEY` | `gpt-5.6-terra` | $2 / $12 |
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-opus-5` | $5 / $25 |
+
+`gpt-5.6-terra` rather than the frontier `gpt-6-astra` ($10/$50) or the cheapest `gpt-5.6-luna`
+($0.20/$1.20): compiling a plan is a judgement task where a bad proposal costs a reviewer's time,
+so the bottom tier is a false economy — but it is not work that needs the most expensive model
+available. Override with `--model`.
+
+An unknown `--provider` fails rather than falling back to a default. Silently compiling with a
+provider nobody asked for would misattribute both the cost and the resulting plan.
 
 ## Configuration
 
 | setting | source |
 |---|---|
-| API key | `ANTHROPIC_API_KEY`. Never read from, or written to, the plan. |
-| model | `--model`, default `claude-opus-5` |
-| endpoint | `ANTHROPIC_BASE_URL`, or the provider's `baseUrl` option, for a gateway |
+| API key | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`. Never read from, or written to, the plan. |
+| provider | `--provider`, default `openai` |
+| model | `--model`, provider default if omitted |
+| endpoint | `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL`, or the provider's `baseUrl` option, for a gateway |
 | budget | `--token-budget` |
 
 ## What the model is given
@@ -116,17 +133,34 @@ The budget is enforced twice: an estimate is checked *before* the call, and real
 absorbed. This record is the basis for comparing what a compilation cost against how much reviewed
 security knowledge it bought.
 
-## Prompt
+## Prompt and wire schemas
 
 `packages/compiler/src/prompt.ts` holds the versioned system prompt
-(`COMPILER_PROMPT_VERSION`) and the JSON Schema the model fills in. Bump the version whenever
-either changes; it is recorded on every compilation so a plan can be traced to the prompt that
-produced it.
+(`COMPILER_PROMPT_VERSION`) and the Anthropic request schema. Both providers share that prompt; the
+version is recorded on every compilation so a plan can be traced to what produced it. Bump it
+whenever the instructions change.
 
-The request schema is hand-written rather than generated from `PlanProposalSchema`, because the
-SDK's Zod helper requires Zod v4 and Trinker's security schemas are v3. Migrating them to satisfy
-a prompt detail would be the wrong trade. The wire schema is a *request*; `PlanProposalSchema`
-remains the only validation authority. Keep the two aligned.
+Request schemas are hand-written rather than generated from `PlanProposalSchema`. For Anthropic,
+because the SDK's Zod helper requires Zod v4 and Trinker's security schemas are v3. For OpenAI,
+because strict Structured Outputs is a narrow JSON Schema subset. Either way the wire schema is a
+*request*; `PlanProposalSchema` remains the only validation authority.
+
+### OpenAI's wire encoding
+
+`packages/compiler/src/providers/openai-wire.ts` (`OPENAI_WIRE_VERSION`, reported as
+`<prompt>+openai-wire.N`). Strict mode forbids `anyOf`, `minItems`, and optional properties, and
+requires `additionalProperties: false` everywhere — so it can express neither optional fields nor
+arbitrary-key maps. Two consequences:
+
+- optional fields are **nullable** and the nulls are stripped on return, because
+  `PlanProposalSchema` is `.strict()` and would reject an explicit `null` where it expects an
+  absent key
+- binding maps and the rationale map travel as **arrays of entries** and are rebuilt
+- a request body travels as a **JSON string** in `bodyJson`
+
+Normalisation only removes nulls and reshapes containers. It can never add or alter content, and
+anything it does not recognise is passed through unchanged so `PlanProposalSchema` rejects it
+rather than being quietly repaired into something that validates.
 
 ## Safety boundaries
 
@@ -138,19 +172,51 @@ remains the only validation authority. Keep the two aligned.
   reach terminals and CI logs.
 - `--apply` is required to change `plan.json`.
 
+## A stale surface
+
+`compile --llm` re-derives the surface from source first, so the model reasons about current
+routes. A plan whose surface was hand-declared or ingested from a specification cannot be
+re-derived, and `compile` rightly refuses to write a plan that would strand its checks.
+
+Rather than fail, the compiler falls back to the committed plan and says so:
+
+```text
+Surface was NOT re-derived from source; the committed plan's routes were used as-is.
+```
+
+That is the normal path for the Juice Shop example and for any OpenAPI-derived plan.
+
 ## Real-provider status
 
-**Unverified.** No Anthropic credentials were available in the environment where this was built, and
-no successful real-provider run is claimed.
+**Both providers are unverified against their real APIs.** No credentials were available in the
+environment where this was built — `OPENAI_API_KEY` was not present in the shell, a login shell, any
+profile, a `.env`, or systemd — so no real call was made and none is claimed.
 
 What *is* verified, without credentials:
 
-- the whole pipeline with a fake provider, including validation, merge, budget, and telemetry
-- the real `@anthropic-ai/sdk` client against a local stub of the Messages API — real
-  serialisation, transport, retry, and error mapping, asserting the request carries the surface and
-  the API key travels only in the header
-- the CLI flow end to end against that stub, including `--apply` and the non-destructive default
+- the whole pipeline with a fake provider: validation, merge, budget, telemetry
+- the **real SDKs** (`openai` and `@anthropic-ai/sdk`) against local stubs of their APIs — real
+  serialisation, transport, retries, and error mapping
+- the CLI flow end to end against a stub **using the actual Juice Shop plan**, including
+  `--apply`, the non-destructive default, and the stale-surface fallback
+- that a credential deliberately planted in `runtime.json` does **not** appear anywhere in the
+  request payload
 
-What remains untested is Anthropic's own acceptance of the request — in particular whether the
-`output_config.format` JSON Schema is accepted as written. Run one compilation against the real API
-before relying on it, and see the handoff for what to check.
+What remains untested is each vendor's acceptance of the request — for OpenAI, whether strict
+Structured Outputs accepts the schema in `openai-wire.ts`; for Anthropic, whether
+`output_config.format` is accepted as written. Both fail loudly with a `ProviderError` if rejected,
+rather than producing a bad plan, and an HTTP 400 is reported with the upstream message so the fix
+is local to the schema.
+
+### Running it for real
+
+```bash
+export OPENAI_API_KEY=sk-proj-...
+cd examples/juice-shop
+docker compose up -d && ./setup.sh          # or any project with a compiled plan
+trinker compile --llm --provider openai --token-budget 40000
+# review .trinker/proposal.json, then re-run with --apply
+```
+
+Record the `record` block from `.trinker/proposal.json`: it carries provider, model, prompt
+version, token counts, budget, and checks proposed/accepted/rejected.
