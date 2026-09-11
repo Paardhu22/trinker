@@ -1,17 +1,14 @@
 # Trinker — Session Handoff
 
-**Written:** 2026-09-11
-**Author:** Claude Code session, reconstructing state from the repository itself.
-**Basis:** This document was produced by reading every source file, every test, and every doc in
-the repository, and by executing the build, typecheck, test suite, and a full live end-to-end
-scan against a purpose-built vulnerable local server. **No previous-session transcript was
-available.** Every "implemented" claim below was verified by running the code, not by trusting a
-summary. Where a claim in the existing `README.md` / `docs/ARCHITECTURE.md` does not match the
-code, this document says so explicitly.
+**Updated:** 2026-09-11 (session 2)
+**Basis:** Written from the repository as it actually is. Every claim below was verified by running
+the code — the full suite, typecheck, build, CLI smoke tests, a pty-driven TUI session, and a live
+scan against a Docker Juice Shop container. Nothing here is claimed on the strength of a commit
+message.
 
-> **Repository is not under version control.** `git status` fails with
-> `fatal: not a git repository`. There is no `.git` directory, no commit history, and no
-> previous-session diff to inspect. See [P0-1](#p0--must-do-next).
+**State:** the deterministic foundation is now hardened and covered. Three oracles are implemented,
+the end-to-end path is proven against real vulnerable software, and CI enforces both. The LLM
+boundary is built but no provider ships.
 
 ---
 
@@ -19,1066 +16,573 @@ code, this document says so explicitly.
 
 ### What Trinker is
 
-Trinker is a **deterministic application security testing framework** for HTTP APIs. It is
-distributed as a pnpm monorepo of TypeScript ESM packages with a single CLI/TUI entry point
-(`trinker`).
+A deterministic application security testing framework for HTTP APIs: a pnpm monorepo of
+TypeScript ESM packages behind one `trinker` CLI/TUI.
 
-Its operating model is a two-phase split:
+Two phases:
 
-1. **Compile** — application-specific security knowledge is extracted from source and frozen into
-   a reviewable, human-auditable, secret-free artifact: `.trinker/plan.json`.
-2. **Run** — that plan is executed mechanically. The runner makes HTTP requests, compares
-   responses, and emits findings. It performs no reasoning, no inference, and no model calls.
+1. **Compile** — security knowledge is extracted from source and frozen into a reviewable,
+   secret-free `.trinker/plan.json`.
+2. **Run** — that plan is executed mechanically. No reasoning, no inference, no model calls.
 
 ### The core architectural thesis
 
 > **Security knowledge is expensive to derive and cheap to replay.**
 
-Deriving "only the owner of order 42 may read order 42" is genuinely hard — it requires reading
-code, understanding the domain, and judgement. *Checking* that claim is trivial: issue two
-requests with two identities and compare the bytes.
+Deriving "only the owner of order 42 may read order 42" takes judgement. *Checking* it is two
+requests and a byte comparison. Trinker makes the expensive step a compilation producing a durable
+artifact, and the cheap step something you run on every pull request.
 
-Trinker therefore treats the expensive step as a **compilation** that happens rarely and produces
-a durable artifact, and the cheap step as an **execution** that happens on every CI run. The plan
-is the compiler's output; the runner is the interpreter.
+### Why the deterministic architecture exists
 
-### Why the deterministic/compiler architecture exists
+- **Reproducibility** — same plan, same target, same result. A finding is a replayable fact.
+- **Reviewability** — `plan.json` is committed and diffable. Security assumptions become code review.
+- **Cost** — a scan is free after compilation.
+- **Auditability** — every finding carries the request/response witnesses that produced it.
+- **Bounded blast radius** — the runner does only what the plan says. An improvising agent cannot
+  have its blast radius statically bounded.
 
-- **Reproducibility.** The same plan against the same target yields the same result. A finding is
-  not a probabilistic opinion; it is a replayable mechanical fact.
-- **Reviewability.** `.trinker/plan.json` is committed and diffable. A human (or a PR reviewer)
-  can see exactly what will be tested and what security claims are being asserted, *before*
-  anything runs. Security assumptions become code review artifacts.
-- **Cost.** A scan costs zero LLM tokens. Running Trinker on every PR is free after compilation.
-- **Auditability.** Every finding carries the request/response witnesses that produced it plus a
-  replay command. There is no "the model thought this looked exploitable."
-- **Safety.** Because the runner only does what the plan says, the blast radius is statically
-  bounded and reviewable. An agent that improvises cannot have its blast radius bounded.
-
-### How it differs from repeatedly agentic pentesting
+### How it differs from agentic pentesting
 
 | | Agentic pentester | Trinker |
 |---|---|---|
-| Per-run cost | LLM tokens every run | Zero tokens per run |
-| Reproducibility | Non-deterministic; re-runs differ | Byte-identical re-runs |
-| Reviewability | Reasoning is ephemeral | Plan is a committed, diffable artifact |
-| Evidence | Model narrative | Redacted request/response witnesses + digests |
-| CI suitability | Flaky, slow, expensive | Fast, deterministic, exit-code driven |
-| Blast radius | Emergent from model behaviour | Statically bounded by plan + safety gates |
-| Knowledge reuse | Re-derived every run | Derived once, replayed forever |
+| Per-run cost | tokens every run | zero |
+| Reproducibility | re-runs differ | byte-identical |
+| Reviewability | reasoning is ephemeral | committed, diffable plan |
+| Evidence | model narrative | redacted witnesses + digests |
+| CI | flaky, slow, expensive | fast, exit-code driven |
+| Knowledge | re-derived every run | derived once, replayed |
 
-An LLM may *author* the plan (that boundary is designed for and reserved — see §5). It never
-participates in executing one.
+An LLM may *author* a plan. It never participates in executing one, and that is enforced by the
+dependency graph (§4, §13).
 
 ---
 
 ## 2. Current architecture
 
-### Monorepo / package structure
+### Packages
 
-pnpm workspace (`pnpm-workspace.yaml` → `packages/*`), 8 packages, all ESM
-(`"type": "module"`), all built with `tsup`, all typechecked with a shared
-`tsconfig.base.json` under `strict` + `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes` +
-`verbatimModuleSyntax`.
+~3,200 lines of source, ~2,100 lines of test, 81 tracked files, 17 commits.
 
-| Package | Name | LOC (src) | Responsibility | Status |
-|---|---|---|---|---|
-| `packages/core` | `@trinker/core` | 333 | Zod schemas, safety preflight, execution scheduler, typed event bus, findings contract, coverage math | **Active** |
-| `packages/surface` | `@trinker/surface` | 147 | TypeScript-AST route extraction, OpenAPI ingestion, resource inference, surface digest | **Active** |
-| `packages/oracles` | `@trinker/oracles` | 104 | Deterministic oracle implementations (currently one) | **Active** |
-| `packages/report` | `@trinker/report` | 61 | JSON / Markdown / SARIF rendering and file emission | **Active** |
-| `packages/trinker` | `trinker` | 97 | CLI arg parsing, TUI shell, project workflow orchestration | **Active** |
-| `packages/compiler` | `@trinker/compiler` | 14 | Reserved LLM boundary: `TokenUsage` schema + `TokenBudget` guard. **No provider, no network client.** | **Reserved / orphan** |
-| `packages/probes` | `@trinker/probes` | 2 | Placeholder for payload/OOB integrations | **Stub / orphan** |
-| `packages/vitest` | `@trinker/vitest` | 2 | Placeholder for Vitest assertion API | **Stub / orphan** |
-
-**Verified:** `compiler`, `probes`, and `vitest` are **not depended on by any other package**.
-They build and typecheck but are dead weight in the dependency graph. `TokenBudget` has zero
-call sites.
+| Package | Name | src | test | Responsibility | Status |
+|---|---|---|---|---|---|
+| `core` | `@trinker/core` | 834 | 741 | schemas, safety, bindings, runner, events, findings, coverage | **Active** |
+| `trinker` | `trinker` | 951 | 296 | CLI, TUI, scan-view reducer, workflow adapter | **Active** |
+| `surface` | `@trinker/surface` | 466 | 242 | AST extraction, mount resolution, OpenAPI ingest | **Active** |
+| `oracles` | `@trinker/oracles` | 414 | 468 | three deterministic oracles | **Active** |
+| `report` | `@trinker/report` | 167 | 105 | JSON / Markdown / SARIF | **Active** |
+| `compiler` | `@trinker/compiler` | 364 | 254 | LLM boundary: proposal contract, validation, budget | **Built, no provider** |
+| `probes` | `@trinker/probes` | 2 | 0 | placeholder for OOB payloads | **Stub / orphan** |
+| `vitest` | `@trinker/vitest` | 2 | 0 | placeholder for consumer assertions | **Stub / orphan** |
 
 ### Dependency direction
 
 ```text
-                     trinker (CLI + TUI + workflow)
-                       |        |        |        |
-             +---------+        |        |        +----------+
-             v                  v        v                   v
-      @trinker/surface   @trinker/oracles  @trinker/report   |
-             |                  |                |           |
-             +--------+---------+----------------+-----------+
-                      v
-                 @trinker/core
-                (schemas, safety, runner, events, findings, coverage)
-                      |
-                     zod
+trinker CLI / TUI ──┬─> @trinker/surface ─┐
+                    ├─> @trinker/oracles ─┤
+                    ├─> @trinker/report  ─┼─> @trinker/core ──> zod
+                    └─> @trinker/compiler ┘        (only dependency)
 
-      @trinker/compiler --> @trinker/core   (built, never imported)
-      @trinker/probes                        (built, never imported)
-      @trinker/vitest                        (built, never imported)
+@trinker/compiler ──> @trinker/core        (compile only; never on the scan path)
 ```
 
-Dependencies point **inward to `core`**. `core` depends only on `zod` and Node builtins. `core`
-has no knowledge of the terminal, the filesystem layout, or the CLI.
+`core` imports only `zod`, `node:crypto`, `node:events`. `surface`, `oracles`, and `report` must
+never depend on or import `@trinker/compiler` — **`packages/core/test/architecture.test.ts`
+enforces this**, along with "no provider SDK anywhere on the scan path" and "core does no
+filesystem I/O".
 
-### Execution flow: discovery → plan → runner → oracle → finding → report
+### Execution flow
 
 ```text
-1. trinker init
-   workflow.initialiseProject()
-   └─> writes .trinker/runtime.json  (gitignored; URLs + credentials live here)
+trinker init      -> .trinker/runtime.json (gitignored: URLs, credentials, fixtures, values)
 
-2. trinker compile
-   workflow.compileProject()
-   ├─> surface.discoverSurface({ rootDir })
-   │     ├─ walk source files (skips node_modules, dist, .git, .trinker, *.test.*, *.spec.*)
-   │     ├─ extractRoutesFromSource()  — TypeScript AST visitor
-   │     ├─ detectFrameworksFromSource() — import/require analysis
-   │     ├─ dedupeRoutes() + sort by id (determinism)
-   │     ├─ inferResources() — group routes by path-parameter name
-   │     └─ digest = sha256(JSON.stringify({frameworks, routes, resources}))
-   ├─> assemble plan skeleton (identities/fixtures/invariants/checks are ALL EMPTY)
-   ├─> planId = "trkp_" + sha256(plan-without-id).slice(0,16)   ← content-addressed
-   ├─> PlanSchema.parse()  — strict validation + inline-secret rejection
-   └─> writes .trinker/plan.json  (COMMITTED artifact)
+trinker compile   -> discoverSurface()
+                       walk sources, resolve receivers + mount prefixes, dedupe, sort, digest
+                     merge with any existing plan (preserves authored content)
+                     PlanSchema.parse -> .trinker/plan.json  (committed)
 
-   *** HUMAN STEP: author identities, fixtures, invariants, checks by hand. ***
-   *** compile deliberately invents NO authorization claims. ***
+  *** HUMAN STEP: author identities, fixtures, invariants, checks ***
 
-3. trinker run [--ci] [--format json|sarif]
-   workflow.runProject()
-   ├─> loadPlan()     — PlanSchema.parse (re-validates on every load)
-   ├─> loadRuntime()  — RuntimeConfigSchema.parse
-   └─> core.runPlan({ plan, runtime, oracles: [differentialAuthorizationOracle] })
-         ├─ emit scan.started
-         ├─ assertSafePlan(plan, runtime)     ── THROWS and aborts on violation
-         ├─ assertSafeTarget(plan, runtime)   ── host allowlist
-         ├─ emit phase.started, usage.updated
-         ├─ for each enabled check, sorted by check.id (determinism):
-         │     ├─ emit check.started
-         │     ├─ look up oracle by check.oracle
-         │     │    └─ missing -> counts.skipped++, emit check.skipped, continue
-         │     ├─ await oracle.execute({ plan, runtime, check, http, emit })
-         │     │     └─ differential-authorization:
-         │     │          ├─ request once per allowed identity      -> witness
-         │     │          ├─ request N times per denied identity    -> calibration
-         │     │          ├─ emit oracle.calibrated (denial fingerprints)
-         │     │          └─ compare: status equal AND body sha256 equal?
-         │     │                yes -> FAILED + Finding
-         │     │                denied got 2xx but different bytes -> SKIPPED (inconclusive)
-         │     │                otherwise -> PASSED
-         │     ├─ failed -> assign id TRK-000N, push finding, emit finding.confirmed
-         │     └─ thrown error -> counts.skipped++, emit check.skipped (SWALLOWED)
-         ├─ emit scan.completed
-         └─ return ScanResult { checks counts, findings, tokens: all zeros }
-   ├─> report.createReport(plan, result)
-   └─> writes .trinker/latest-report.json  (gitignored)
+trinker run       -> loadPlan + loadRuntime (re-validated every load)
+                     runPlan({ plan, runtime, oracles, onEvent })
+                       emit scan.started
+                       assertSafePlan / assertSafeTarget  -- hard abort -> scan.failed
+                       for each enabled check, sorted by check.id:
+                         emit check.started
+                         no oracle registered      -> unavailable
+                         oracle.execute()          -> passed | failed | inconclusive
+                         oracle threw              -> errored
+                         failed -> assign TRK-000N + its replay command -> finding.confirmed
+                       emit scan.completed
+                     createReport -> .trinker/latest-report.json
 
-4. trinker verify <TRK-id>
-   workflow.verifyFinding()
-   ├─> load latest-report.json, locate the finding
-   ├─> load plan, locate finding.replay.checkId
-   ├─> runPlan with plan narrowed to that ONE check
-   └─> render Markdown; exit 1 if still confirmed, 0 if not reproduced
-
-5. trinker report [--json|--sarif]  (default markdown)
-   └─> .trinker/reports/YYYY-MM-DD-security-report.{json,md,sarif}
-
-6. trinker coverage [--ci]
-   └─> calculatePlanCoverage(plan) — enabled checks' routeIds / inScopeRouteIds
+trinker verify <id>  -> replay that one check, relabelled with the original id
+trinker report       -> .trinker/reports/<timestamp>-security-report.{json,md,sarif}
+trinker coverage     -> planned vs verified routes
 ```
 
-### Separation between core engine and TUI/CI
+### Core / presentation separation
 
-This separation is real and holds in the code:
-
-- `@trinker/core` imports **zero** terminal, filesystem-layout, or CLI code. Its only imports are
-  `zod`, `node:crypto`, and `node:events`.
-- All security decisions (safety gating, check scheduling, finding construction, ID assignment,
-  event ordering/sequencing) live in `core` or in an oracle. **The CLI and TUI make no security
-  decision.**
-- `packages/trinker/src/workflow.ts` is the only filesystem adapter — it owns `.trinker/` paths,
-  reads/writes JSON, and wires the oracle registry. Both `cli.ts` and `tui.ts` call it.
-- `cli.ts` and `tui.ts` both consume the *same* `ScanEventBus` via `handle.subscribe(...)`. The
-  TUI is not privileged.
-- CI mode (`--ci`) simply passes `undefined` as the event callback, renders a report to stdout,
-  and sets `process.exitCode`. It never enters raw mode, never requires a TTY.
+Holds, and is now tested. `core` knows nothing of the terminal or `.trinker/` layout.
+`packages/trinker/src/workflow.ts` is the only filesystem adapter. The TUI reduces the event
+stream through `scan-view.ts`, a **pure function** unit-tested without a TTY — so no security
+decision can live in rendering code.
 
 ### Typed event model
 
-`packages/core/src/events.ts`. Envelope:
+`ScanEvent { version, scanId, sequence, timestamp, type, data }`. 15 event types.
 
-```ts
-interface ScanEvent<T = Record<string, unknown>> {
-  version: 1;          // envelope version, for forward compatibility
-  scanId: string;      // stable per scan
-  sequence: number;    // monotonic, CORE-OWNED — consumers cannot forge ordering
-  timestamp: string;   // ISO 8601; clock is injectable (`now`) for deterministic tests
-  type: ScanEventType;
-  data: T;
-}
-```
-
-12 event types, all emitted somewhere in the codebase:
-
-`scan.started` · `surface.discovered` · `phase.started` · `oracle.calibrated` ·
-`check.started` · `check.progress` · `check.passed` · `check.failed` · `check.skipped` ·
-`finding.confirmed` · `usage.updated` · `scan.completed`
-
-`ScanEventBus` wraps a Node `EventEmitter`, offers `subscribe(fn) => unsubscribe` **and**
-implements `AsyncIterable<ScanEvent>`.
-
-> ⚠️ **`surface.discovered` is declared in the union but never emitted.** `discoverSurface` runs
-> inside `compile`, which does not have a bus. See [Known issues](#9-known-issues--technical-debt).
->
-> ⚠️ **The async iterator never terminates** and **early events are lost to a subscription race.**
-> Both are verified defects — see [Known issues](#9-known-issues--technical-debt).
+`ScanEventBus` **retains its history and replays it to any listener that attaches later**, so a
+consumer always observes the complete sequence from `scan.started`. Async iteration terminates on
+`scan.completed` / `scan.failed`.
 
 ---
 
 ## 3. `.trinker/plan.json`
 
-Defined by `PlanSchema` in `packages/core/src/schema.ts`. `.strict()` throughout — unknown keys
-are rejected at every level.
+Schema in `packages/core/src/schema.ts`, `.strict()` throughout.
 
-### Current schema (schemaVersion 1)
+### Shape
 
 ```jsonc
 {
-  "schemaVersion": 1,                                  // z.literal(1)
-  "planId": "trkp_<16 hex>",                           // /^trkp_[a-z0-9_]+$/, content-addressed
-  "surfaceDigest": "sha256:<64 hex>",                  // /^sha256:[a-f0-9]{64}$/
-  "target": {
-    "applicationId": "my-app",                         // NOT a URL — a logical name
-    "allowedTargetRefs": ["local"]                     // KEYS into runtime.json.targets, min 1
-  },
-  "surface": {
-    "frameworks": ["express"],                         // express|fastify|openapi|unknown, min 1
-    "routes": [{
-      "id": "route_get_api_orders_id_d57bfb5a",        // /^route_[a-z0-9_]+$/
-      "method": "GET",                                 // GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS
-      "pathTemplate": "/api/orders/:id",               // must start with "/"
-      "operationId": "getOrder",                       // optional (OpenAPI only)
-      "parameters": [{ "name": "id", "location": "path", "required": true }],
-      "sourceRefs": [{ "kind": "ast", "path": "app.ts", "line": 3 }],
-      "confidence": "high"                             // high|medium|low
-    }],
-    "resources": [{
-      "id": "resource_order", "name": "order",
-      "routeParameter": "id", "routeIds": [...], "sourceRefs": []
-    }]
-  },
-  "identities": [{
-    "id": "identity_owner",                            // /^identity_[a-z0-9_]+$/
-    "credentialRef": "owner",                          // optional KEY into runtime.identities
-    "roles": ["user"], "capabilities": []              // documentation only; unused by oracles
-  }],
-  "fixtures": [{
-    "id": "fixture_order",                             // /^fixture_[a-z0-9_]+$/
-    "runtimeRef": "orderOwnedByOwner",                 // KEY into runtime.fixtures, required
-    "resourceId": "resource_order",                    // optional
-    "ownerIdentityId": "identity_owner"                // optional; documentation only
-  }],
-  "invariants": [{
-    "id": "inv_order_owner_only",                      // /^inv_[a-z0-9_]+$/
-    "kind": "authorization",                           // authorization | state-mutation |
-                                                       // metamorphic-response |
-                                                       // browser-execution | out-of-band
-    "statement": "Only the owner may retrieve this order.",   // 1..1000 chars, human prose
-    "routeIds": ["route_..."],                         // min 1
-    "resourceId": "resource_order",                    // optional
-    "provenance": "manual"                             // manual | deterministic | llm-assisted
-  }],
-  "checks": [ /* discriminated union on "oracle" — see below */ ],
-  "coverage": {
-    "inScopeRouteIds": ["route_..."],
-    "exclusions": [{ "routeId": "route_...", "reason": "REQUIRED, min 1 char" }]
-  },
-  "safety": {
-    "mutationPolicy": "forbid",                        // forbid | explicit-authorization-required
-    "allowedMethods": ["GET", "HEAD", "OPTIONS"]       // min 1
-  },
-  "provenance": {
-    "sources": [{ "kind": "ast", "path": "." }],
-    "compiler": { "mode": "deterministic", "compilerVersion": "0.1.0" }
-                 // mode: manual | deterministic | llm-assisted
-  }
+  "schemaVersion": 1,
+  "planId": "trkp_<16 hex>",          // sha256 of the plan body — content addressed
+  "surfaceDigest": "sha256:<64 hex>",
+  "target": { "applicationId": "my-app", "allowedTargetRefs": ["local"] },  // keys, never URLs
+  "surface": { "frameworks": [...], "routes": [...], "resources": [...] },
+  "identities": [{ "id": "identity_owner", "credentialRef": "owner", "roles": [], "capabilities": [] }],
+  "fixtures":   [{ "id": "fixture_order", "runtimeRef": "order", "ownerIdentityId": "identity_owner" }],
+  "invariants": [{ "id": "inv_x", "kind": "authorization", "statement": "...", "routeIds": [...],
+                   "provenance": "manual | deterministic | llm-assisted" }],
+  "checks":     [ /* discriminated union on "oracle" */ ],
+  "coverage":   { "inScopeRouteIds": [...], "exclusions": [{ "routeId": "...", "reason": "required" }] },
+  "safety":     { "mutationPolicy": "forbid | explicit-authorization-required", "allowedMethods": [...] },
+  "provenance": { "sources": [...], "compiler": { "mode": "...", "compilerVersion": "0.1.0" } }
 }
 ```
 
-### Check variants (discriminated union on `oracle`)
+### Check variants
 
-All extend a base of `{ id: /^chk_[a-z0-9_]+$/, invariantId, enabled (default true), request }`.
-
-| `oracle` | Extra fields | Runtime oracle registered? |
+| `oracle` | required fields | implemented? |
 |---|---|---|
-| `differential-authorization` | `allowedIdentityIds` (min 1), `deniedIdentityIds` (min 1), `calibration.trials` (1–5, default 3) | ✅ **Yes** |
-| `state-mutation` | `readRequest`, `protectedPaths` (min 1) | ❌ No — parses, then skips at runtime |
-| `metamorphic-response` | `variants[]` (min 2) | ❌ No |
-| `browser-execution` | — | ❌ No |
-| `out-of-band` | — | ❌ No |
+| `differential-authorization` | `allowedIdentityIds`, `deniedIdentityIds`, `calibration.trials` (1–5, default 3) | ✅ |
+| `state-mutation` | `readRequest`, `readIdentityId`, `unauthorizedIdentityIds`, `protectedPaths`, `calibration.stabilityReads` | ✅ |
+| `metamorphic-response` | `identityId`, `relation`, `variants[]` (min 2), `calibration.stabilityReads` | ✅ |
+| `browser-execution` | — | ❌ reported `unavailable` |
+| `out-of-band` | — | ❌ reported `unavailable` |
 
-> **Verified:** the four unregistered variants validate successfully against `PlanSchema` and are
-> then silently downgraded to `check.skipped` with reason `"Oracle unavailable: <name>"` at run
-> time. The schema is ahead of the runtime by four oracles.
+> `state-mutation` and `metamorphic-response` were **schema stubs with no way to express who acts**.
+> This session added their identity and relation fields. No plan used those variants (no oracle
+> existed to run them), so `schemaVersion` stayed 1.
 
-### `RequestTemplate` and value bindings
+### Value bindings
 
-```jsonc
-"request": {
-  "routeId": "route_...",
-  "pathBindings":   { "id": <ValueBinding> },
-  "queryBindings":  { "q":  <ValueBinding> },
-  "headerBindings": { "x-tenant": <ValueBinding> },
-  "body": <unknown>            // optional, arbitrary
-}
-```
-
-`ValueBinding` is a 3-way union:
-
-| Form | Meaning | Implemented in oracle? |
+| binding | resolves from | in evidence? |
 |---|---|---|
-| `{ "fixtureRef": "fixture_order", "field": "id" }` | resolve `runtime.fixtures[fixture.runtimeRef][field]`, must be primitive | ✅ **Yes** |
-| `{ "literal": "abc" \| 42 \| true }` | inline constant | ✅ **Yes** |
-| `{ "runtimeRef": "someKey" }` | resolve from runtime config | ❌ **THROWS** `"runtimeRef bindings are not implemented"` |
+| `{ "literal": "abc" }` | the plan | yes |
+| `{ "fixtureRef": "f", "field": "id" }` | `runtime.fixtures.<runtimeRef>.<field>` | yes — a finding about object 42 is unreadable if 42 is masked |
+| `{ "runtimeRef": "k" }` | `runtime.values.<k>` | **no** — treated as secret, masked everywhere |
 
-> **Verified defect:** a `runtimeRef` binding passes schema validation, then throws at execution.
-> The runner catches the throw and turns the check into a **skip**, so the user sees
-> `check.skipped {"reason":"runtimeRef bindings are not implemented: owner"}` — a silently
-> non-executed security check.
-
-### Cross-reference validation (`superRefine`)
-
-On every `PlanSchema.parse()`:
-
-- every `check.request.routeId` must exist in `surface.routes`
-- every `check.invariantId` must exist in `invariants`
-- for `differential-authorization`, every id in `allowedIdentityIds` ∪ `deniedIdentityIds` must
-  exist in `identities`
-- the whole plan is walked by `containsInlineSecret()` (below)
+Bindings work in path, query, header, and **nested anywhere inside a request body**. A missing
+reference is a loud `BindingResolutionError`, never a silent skip.
 
 ### Safety constraints
 
-Enforced in `packages/core/src/safety.ts`, called by `runPlan` **before any HTTP request**:
+Enforced in `safety.ts` before any HTTP request. All are hard aborts.
 
-1. **Target allowlist** (`assertSafeTarget`) — `localhost`, `127.0.0.1`, `::1`, `[::1]` are
-   allowed implicitly. **Any other hostname must be listed in
-   `runtime.targets[ref].allowHosts`** or the scan aborts.
-   *Verified:* pointing the target at `https://example.com` aborts with
-   `Target example.com is blocked. Use an explicit allowHosts entry for an authorized target.`
-   and exit code 2.
-2. **Method allowlist** — every checked route's method must appear in `plan.safety.allowedMethods`.
-3. **Mutation gate, part 1** — if any checked route uses a non-`GET`/`HEAD`/`OPTIONS` method and
-   `plan.safety.mutationPolicy === "forbid"`, the scan aborts.
-   *Verified:* aborts with `Plan contains a write check while mutationPolicy is forbid`, exit 2.
-4. **Mutation gate, part 2** — write checks *additionally* require `mutationAuthorized: true` in
-   `runtime.json`. Both gates must be passed; the plan alone cannot authorize a write.
-5. **Unknown route reference** — a check naming a nonexistent route aborts the scan.
+1. **Target allowlist** — loopback (`localhost`/`127.0.0.1`/`::1`) implicit; anything else must be
+   in `runtime.targets[ref].allowHosts`.
+2. **Method allowlist** — checked method must be in `plan.safety.allowedMethods`.
+3. **Mutation gate, plan half** — writes need `mutationPolicy: "explicit-authorization-required"`.
+4. **Mutation gate, runtime half** — writes *also* need `mutationAuthorized: true` locally.
+5. **Route integrity** — a check naming a nonexistent route aborts.
 
-All five are hard aborts (thrown), not warnings. `compile` emits the maximally conservative
-policy: `mutationPolicy: "forbid"`, `allowedMethods: ["GET","HEAD","OPTIONS"]`.
+The two mutation gates are deliberately separate: **a committed plan alone can never authorize a
+write**, which is what keeps a plan safe to merge.
 
-### Secret / credential handling
+### Secret handling
 
-The plan is designed to be **committed**; the runtime config is designed to be **gitignored**.
-`.gitignore` encodes exactly this: it ignores `.trinker/runtime.json`, `.trinker/reports/`,
-`.trinker/events/`, `.trinker/cache/` — and **not** `.trinker/plan.json`.
+`.gitignore` commits `plan.json` and ignores `runtime.json`, reports, and `latest-report.json`.
+Patterns are **unanchored (`**/`)** so a Trinker project nested anywhere is covered — they were
+root-anchored until this session, which meant `examples/juice-shop/.trinker/runtime.json` (bearer
+tokens) would have been committable.
 
-`containsInlineSecret()` (schema.ts:152) recursively walks the entire plan. Any key matching
-`/(?:authorization|cookie|password|secret|api[_-]?key|access[_-]?token|refresh[_-]?token)/i`
-with a non-empty value is rejected — **unless** the value is an object containing `runtimeRef` or
-`fixtureRef`, which are the sanctioned indirection forms.
-
-*Verified:* a plan containing
-`headerBindings: { "authorization": { "literal": "Bearer leaked-token" } }` is rejected with
-`"Plans may not contain inline credential-like values; use runtime configuration references
-instead"`. The same key bound as `{ "runtimeRef": "owner" }` passes the schema (though it then
-fails at execution — see above).
-
-Note the `.strict()` schemas are the first line of defence: an arbitrary `apiKey` field anywhere
-is rejected as an unrecognized key before the secret scanner even runs.
-
-Evidence redaction: `redactedHeaders()` in the oracle replaces any header whose **name** matches
-`/authorization|cookie|token|secret/i` with `[REDACTED]` in both requests and responses recorded
-in a finding. *Verified in the emitted report.*
-
-### How plans are generated / validated
-
-- **Generated:** `trinker compile` → `workflow.compileProject()`. Fully deterministic, zero LLM.
-  It extracts the surface and emits a structurally valid plan with **empty**
-  `identities`/`fixtures`/`invariants`/`checks`. It deliberately invents no authorization claims.
-- **Validated:** `PlanSchema.parse()` runs on write (in `compile`) and again on **every** read
-  (`loadPlan`). A hand-edited plan cannot be run without passing full validation.
-- **Authored:** identities, fixtures, invariants, and checks are **written by hand today**.
-  `docs/PLAN_AUTHORING.md` is the reference, and its example route id
-  (`route_get_api_orders_id_d57bfb5a`) was verified to be byte-identical to what the compiler
-  actually produces for `app.get('/api/orders/:id', …)`.
+`containsInlineSecret()` rejects credential-like keys in a plan unless the value is a
+`runtimeRef`/`fixtureRef` indirection. `redactHeaders()` masks credential headers by name;
+`maskSecrets()` additionally masks known secret *values* anywhere they appear, including inside
+URLs where name-based redaction cannot reach.
 
 ### What is deterministic
 
-- `planId` is `sha256` of the plan body → identical input source yields an identical plan id.
-- `surfaceDigest` is `sha256` of `{frameworks, routes, resources}`.
-- Route ids embed `sha256(method + " " + path).slice(0,8)` → stable across runs and machines.
-- Routes are deduped and sorted by id before digesting.
-- Checks execute in `check.id.localeCompare` order, not declaration order.
-- Response comparison is `status` equality **AND** `sha256(body)` equality. No fuzzy matching.
-- Event `sequence` is a core-owned monotonic counter; the clock is injectable for tests.
-- Token counters are hard-coded to zero in `runPlan` and `ScanResult`.
+Content-addressed `planId`/`surfaceDigest`; routes deduped and sorted; checks executed in
+`check.id` order; injectable clock; byte-exact response comparison; token counters pinned to zero.
 
 ---
 
 ## 4. Implemented functionality
 
-Legend: ✅ fully implemented · 🟡 partially implemented · ⬜ stubbed · ❌ not implemented
+✅ fully · 🟡 partial · ⬜ stub · ❌ absent
 
-### Surface discovery — 🟡 partially implemented
+### Surface discovery — ✅ (with documented limits)
 
-✅ Recursive source walk with sensible exclusions (`node_modules`, `dist`, `.git`, `.trinker`,
-`*.test.*`, `*.spec.*`), default include `/\.[cm]?[jt]sx?$/`, sorted output.
-✅ Resource inference: groups routes by path-parameter name, strips a trailing `Id`, emits
-`resource_<name>` with `routeIds` and a representative `routeParameter`.
-✅ Deterministic dedupe + digest.
-🟡 Extraction quality — **verified limitations, each reproduced**:
+Receiver resolution traces identifiers back to `express()`, `express.Router()`, `Fastify()`, or a
+Fastify plugin's instance parameter. Mount prefixes (`app.use('/api', router)`,
+`fastify.register(plugin, { prefix })`) resolve **within and across files**. Chained
+`.route().get().post()` walks the whole chain. Confidence is meaningful:
 
-| Input | Extracted | Correct? |
+| | meaning |
+|---|---|
+| `high` | receiver proven by a factory call, path fully resolved |
+| `medium` | receiver matched by naming convention only, or multiple / cross-file mounts |
+| `low` | router never mounted in analysed sources — path probably incomplete |
+
+An unrecognised receiver yields **no route**. Verified fixes (all were defects last session):
+
+| case | before | now |
 |---|---|---|
-| `app.get('/health', h)` | `GET /health` | ✅ |
-| `router.post('/orders/:orderId', h)` | `POST /orders/:orderId` + path param | ✅ |
-| `fastify.route({ method:'DELETE', url:'/orders/:id' })` | `DELETE /orders/:id` | ✅ |
-| `fastify.get('/ping', h)` | `GET /ping` | ✅ |
-| `r.get('/:id'); app.use('/api/orders', r)` | `GET /:id` | ❌ **mount prefix ignored → wrong path, still labelled `confidence: "high"`** |
-| `` app.get(`/api/${v}/x`, h) `` | *(nothing)* | ❌ template literals with substitutions dropped |
-| `cache.get('/api/secret')` | `GET /api/secret` | ❌ **false positive — any `.get('/…')` call** |
-| `app.route('/books').get(h).post(h)` | `GET /books` only | ❌ `.post` in the chain missed |
-| `@Get('/users/:id')` (Nest) | *(nothing)* | ❌ decorator frameworks unsupported |
+| `app.use('/api/orders', r)` + `r.get('/:id')` | `GET /:id` (wrong, "high") | `GET /api/orders/:id` [high] |
+| `cache.get('/api/secret')` | `GET /api/secret` (fabricated) | *(nothing)* |
+| `app.route('/books').get().post()` | GET only | GET + POST |
+| Fastify plugin prefix | unsupported | supported |
+| `` app.get(`/api/${v}/x`) `` | dropped | still dropped (conservative) |
+| Nest `@Get()` decorators | unsupported | still unsupported |
 
-### Express/Fastify AST extraction — 🟡 partially implemented
+### Deterministic compilation — ✅
 
-Uses the real `typescript` compiler API (`ts.createSourceFile` + visitor), not regex. Recognises
-three shapes: `<expr>.<method>('/path', …)`, `<expr>.route({ method, url|path })`, and
-`<expr>.route('/path').<method>(…)` (first link only). Framework detection is separate and
-honest: `detectFrameworksFromSource` reads `import`/`require` specifiers only, so
-`app.get("/health")` on a plain object yields `["unknown"]` rather than a guess — this is
-explicitly asserted by a test.
+`compile` writes **no checks** and the most conservative safety policy. **Recompiling preserves**
+hand-authored identities, fixtures, invariants, checks, and safety policy; if the result would not
+validate it refuses to write and names the offending checks. `--force` regenerates from scratch.
+(Before this session, recompiling silently destroyed everything you had authored.)
 
-### OpenAPI ingestion — ✅ fully implemented (for the object form)
+### Runner — ✅
 
-`ingestOpenApi(document)` walks `paths`, normalises `{id}` → `:id`, preserves `operationId`,
-derives path parameters, returns a full `Surface` with digest. **Not wired into the CLI** — there
-is no `trinker compile --openapi <file>`; it is a library function only.
+Safety preflight, deterministic ordering, oracle registry, per-check classification, **finding IDs
+and their replay commands assigned together** (an oracle returns a `FindingDraft` with no ID and
+*cannot* desynchronise them). `FetchHttpClient` has a 15s timeout and sets `content-type`.
 
-### Deterministic runner — ✅ fully implemented
+### Oracles — ✅ ×3
 
-Safety preflight, oracle registry lookup, deterministic check ordering, per-check try/catch,
-counter maintenance, sequential `TRK-000N` id assignment, `ScanResult` assembly, all token
-counters pinned to zero. `FetchHttpClient` uses global `fetch` and is injectable (`options.http`)
-— the entire test suite runs against a fake client with no network.
+**Differential authorization** — witnesses from allowed identities; calibration requests per denied
+identity measuring real denial behaviour; confirms only on **status + full-body sha256** equality.
+An unexplained 2xx is `inconclusive`.
 
-### Differential authorization oracle — ✅ fully implemented
+**State mutation** — baseline read, control reads proving stability, unauthorized write, re-read.
+Confirms only when a `protectedPath` **value changed**. A 200 that changed nothing is `passed`.
+Drifting state is `inconclusive`.
 
-**Verified end-to-end against a live vulnerable HTTP server**, producing a real CONFIRMED
-finding. Algorithm:
+**Metamorphic response** — reference variant repeated as a determinism control, then variants
+compared under a declared `identical` / `status-identical` relation. Catches client-controlled data
+scoping. A non-deterministic endpoint is `inconclusive`, with the message pointing at the weaker
+relation.
 
-1. One request per allowed identity → keep only 2xx responses as **witnesses**. If none, the
-   check is `skipped` (`"No allowed identity produced a successful reference response"`), never a
-   finding.
-2. `calibration.trials` requests per denied identity (default 3, max 5) — this measures the
-   application's actual denial behaviour rather than assuming 401/403.
-3. Emit `oracle.calibrated` with the observed denial status set and fingerprint set.
-4. **Confirm only on exact match**: `status` equal **AND** `sha256(body)` equal between a denied
-   sample and a witness.
-5. A denied identity receiving an *unexpected 2xx with different bytes* → `skipped`
-   (**inconclusive, not a finding**).
-6. Otherwise → `passed`.
+Every oracle calibrates before it judges. No heuristics, no scoring.
 
-Fingerprints also capture `contentType` and a `bodyShape` (`array:N`, `object:sortedKeys`,
-`text:len`) for calibration reporting, but **only status + body digest gate confirmation**.
+### Outcome taxonomy & fail-loud — ✅
 
-### Findings — ✅ fully implemented (one defect)
+| status | meaning |
+|---|---|
+| `passed` | ran, invariant held |
+| `failed` | ran, violation mechanically confirmed |
+| `inconclusive` | ran, could not reach a verdict |
+| `errored` | oracle threw |
+| `unavailable` | no oracle registered — **nothing was tested** |
 
-Zod-enforced: id `/^TRK-\d{4}$/`, `status` is `z.literal("confirmed")` — **the type system makes
-an unconfirmed finding unrepresentable**. Carries invariant statement, routeId, oracle name,
-verdict, redacted request/response witnesses with body digests + ≤1000-char previews,
-human-readable notes, remediation, and a replay handle.
-❌ **Defect:** `replay.command` is hard-coded to `"trinker verify TRK-0000"` in the oracle
-(differential-authorization.ts:95). The runner renumbers `finding.id` to `TRK-0001` but never
-rewrites `replay.command`. *Verified:* the report instructs the user to run
-`trinker verify TRK-0000`, which fails with `Finding TRK-0000 is not present in the latest
-report` (exit 2).
+There is no "skipped". Reports lead with a **trust summary** (COMPLETE / INCOMPLETE), list every
+check that produced no verdict, and emit those as SARIF results so a dashboard cannot show green
+for a scan that executed nothing.
 
-### Coverage — 🟡 partially implemented
+### Exit codes — ✅
 
-✅ Plan coverage: `enabled checks' routeIds ∩ inScopeRouteIds`, returns
-`{inScopeRoutes, coveredRoutes, uncoveredRouteIds, percent}`. *Verified:* 0% → 50% after adding
-one check to a 2-route surface.
-❌ **Execution coverage is not persisted.** `docs/ARCHITECTURE.md` states this honestly. Only
-passed/failed/skipped counts exist in `ScanResult`. A check that *skipped* still counts as
-"covered" by plan coverage — a meaningful blind spot.
-🟡 `percent` is `0` when `inScopeRoutes === 0` (arguably should be 100 or `null`).
+`0` complete + clean · `1` violation confirmed · `2` usage/config error · `3` **scan not
+trustworthy** (errored or unavailable check). `--strict` extends 3 to inconclusive.
 
-### Verification / replay — 🟡 partially implemented
+3 is distinct from 1 so a broken pipeline is never read as a vulnerability, and from 0 so an
+untested scan cannot report success.
 
-✅ `trinker verify <id>` loads the latest report, finds the finding, narrows the plan to the
-single `replay.checkId`, re-runs it, renders Markdown, and exits 1 if still confirmed / 0 if not
-reproduced. *Verified working when given the correct id.*
-❌ Unreachable via the command the report prints (see the `TRK-0000` defect above).
-🟡 The replay always renumbers its finding to `TRK-0001` because numbering restarts from an empty
-array — verifying `TRK-0003` prints a report about `TRK-0001`.
-🟡 Verify does **not** persist its result; `latest-report.json` is untouched.
+### Coverage — ✅
 
-### JSON / Markdown / SARIF reports — ✅ fully implemented
+Plan coverage (intent) and **execution coverage** (reality). A route is *verified* only when
+**every** check on it reached a verdict; unverified routes are attributed to their cause.
 
-All three renderers work. *Verified:* Markdown contains the replay command and severity summary;
-SARIF parses with `version === "2.1.0"` and a well-formed `runs[0].tool.driver` + `results`.
-`writeReport` emits `.trinker/reports/YYYY-MM-DD-security-report.{json,md,sarif}`.
-🟡 SARIF has **no `locations` array** — findings have no file/line anchor, so GitHub code scanning
-will not annotate a line. Rule metadata is minimal (no `helpUri`, no `fullDescription`).
-🟡 One report file per day per format — a second scan on the same day silently overwrites.
+### Reports — ✅
 
-### CI mode — 🟡 partially implemented
+JSON, Markdown, SARIF 2.1.0. Markdown renders witnesses as HTTP blocks with digests. SARIF sets
+`invocations[0].executionSuccessful` false on faults. Timestamped filenames (no longer one-per-day
+collisions).
 
-✅ `--ci` suppresses the event stream, prints a report to stdout, and sets
-`process.exitCode = findings.length > 0 ? 1 : 0`. *Verified: exit 1 with a finding, 0 without,
-2 on error.* Requires no TTY.
-❌ **`--format markdown` is silently ignored in CI.** `cli.ts:19` maps only `"sarif"` → sarif and
-*everything else* → json. *Verified:* `run --ci --format markdown` prints JSON with no warning.
-❌ No `.github/` workflow, no example CI configuration anywhere in the repo.
+### Verification / replay — ✅
 
-### Interactive TUI — 🟡 partially implemented
+`trinker verify <id>` replays the single check and **relabels the reproduced finding with the
+original ID**. Exit 1 if it still reproduces.
 
-See §6 for detail. The menu, navigation, and all seven actions work, but rendering is raw
-`stdout.write` with full-screen clears, and the live scan feed is missing its first events.
+### CI mode — ✅
 
-### Configuration — 🟡 partially implemented
+Non-interactive, no TTY, validated `--format`, correct exit codes. EPIPE handled (piping to `head`
+used to crash a scan mid-flight).
 
-✅ `RuntimeConfigSchema` (strict): `targets` (url + allowHosts), `identities` (header maps),
-`fixtures` (arbitrary records), `mutationAuthorized` (default false). `trinker init` writes a safe
-default pointing at `http://localhost:3000` with `mutationAuthorized: false`.
-❌ No env-var overrides, no config precedence chain, no `--config` flag, no credential-manager
-integration. Credentials sit in plaintext in `.trinker/runtime.json` (gitignored, but plaintext).
-❌ The TUI's "Configuration" menu item only prints an explanatory sentence — it cannot edit
-anything.
+### TUI — ✅
 
-### Juice Shop setup — 🟡 partially implemented
+See §6.
 
-✅ `examples/juice-shop/docker-compose.yml` is valid (*verified with `docker compose config`*)
-and pins `bkimminich/juice-shop:latest` on port 3000. Docker 29.7.2 is installed on this machine.
-✅ `examples/juice-shop/README.md` documents the workflow and is **honest about the gap**: the
-Phase-1 compiler only reads source routes, so Juice Shop's dynamic API needs a hand-written plan
-or a future OpenAPI/crawler input.
-❌ **No Juice Shop plan exists.** There is no `examples/juice-shop/plan.json`, no runtime
-template, no identities, no fixtures, no documented login flow to obtain tokens. The image was
-not pulled and the end-to-end Juice Shop scan has **never been run**.
+### Juice Shop — ✅
+
+See §8. Real container, real finding, real replay, plus a passing negative control.
+
+### LLM compiler — 🟡 boundary built, no provider
+
+`@trinker/compiler` has the proposal contract, deterministic validation/merge, and a token budget.
+**No provider, no network client, and no CLI flag** — see §5.
 
 ---
 
 ## 5. Deferred functionality
 
-Everything below is **absent from the codebase**, verified by reading every source file.
+### LLM provider — 🟡 contract exists, nothing ships
 
-### LLM compiler / provider integration — ⬜ stubbed boundary only
+Built this session: `PlanProposalSchema` (structured plan content, never prose), `applyProposal`
+(deterministic filter + `PlanSchema` re-validation), `TokenBudget` (`assertFits` / `record`),
+`CompilerProvider` interface, `compileWithProvider` orchestration. 26 tests including adversarial
+proposals.
 
-`@trinker/compiler` contains exactly two things: a `TokenUsageSchema` and a `TokenBudget` class
-that throws when a reservation would exceed its limit. Its own doc comment states: *"The optional
-LLM boundary. No provider or network client is included in the MVP."*
+Absent: any provider implementation, prompt templates, a `trinker compile --llm` flag.
 
-Absent: any provider SDK (`grep` for `anthropic|openai|@ai-sdk` across all sources returns **zero
-dependency hits** — only the word "LLM" in comments and user-facing strings), prompt templates,
-invariant-inference logic, plan-diff review flow, `--llm` flag, `compile --mode llm-assisted`.
-`TokenBudget` has **zero call sites**. The schema already reserves `provenance.compiler.mode:
-"llm-assisted"` and `invariant.provenance: "llm-assisted"` for this future.
+> The CLI flag was **deliberately not added**. A flag that always answers "no provider configured"
+> is fake functionality. The library API is tested and ready; the flag lands with the provider.
 
-### Out-of-band (OOB) callbacks — ❌ not implemented
+### Out-of-band callbacks — ❌
 
-`out-of-band` is a valid `invariant.kind` and a valid `check.oracle`, so a plan can declare one.
-There is **no oracle, no collector, no DNS/HTTP callback server, no correlation-token generator**.
-Such a check parses and then skips with `"Oracle unavailable: out-of-band"`.
-`@trinker/probes` — the package nominated for this — is a two-line file exporting
-`probePackageStatus = "not-enabled"`.
+Valid schema oracle name. No collector, no DNS/HTTP callback server, no correlation tokens.
+`@trinker/probes` is a 2-line stub. Checks report `unavailable`.
 
-### Browser-based checks — ❌ not implemented
+### Browser-based checks — ❌
 
-`browser-execution` is a valid oracle name in the schema. No Playwright/Puppeteer dependency, no
-browser driver, no XSS/DOM oracle. Skips at runtime.
+Valid schema oracle name. No Playwright/Puppeteer, no DOM oracle. Reports `unavailable`.
 
-### State-mutation oracles — ❌ not implemented
+### Crawler — ❌
 
-`StateMutationCheckSchema` is fully specified (`readRequest` + `protectedPaths`) — this is the
-**most complete unimplemented schema**, and the shortest path to a second oracle. No
-implementation exists. Skips at runtime.
+`SourceReferenceSchema.kind` reserves `"crawler"`. No crawler, no HAR ingestion, no proxy recording.
+This is the main blocker for targets whose surface is not in source (Juice Shop needed a
+hand-written plan for exactly this reason).
 
-### Metamorphic-response oracle — ❌ not implemented
+### Vitest integration — ⬜
 
-`MetamorphicResponseCheckSchema` with `variants[]` (min 2) is specified. No implementation.
+`@trinker/vitest` is 2 lines. No matchers, no harness. (Vitest *is* the repo's own test runner; the
+consumer-facing package is what is stubbed.)
 
-### Crawler — ❌ not implemented
+### Other gaps
 
-`SourceReferenceSchema.kind` includes `"crawler"`, and the Juice Shop README names a crawler as
-the way to reach dynamic APIs. There is no crawler, no HAR ingestion, no traffic replay, no
-proxy-recording input.
-
-### Vitest integration — ⬜ stubbed
-
-`@trinker/vitest` is two lines: `vitestIntegrationStatus = "not-enabled"`. No custom matchers, no
-`expect(plan).toHaveNoFindings()`, no test-runner harness. (Note: Vitest **is** used as the
-repo's own test runner — the *integration package* for consumers is what is stubbed.)
-
-### Other gaps found during inspection
-
-- **`runtimeRef` value bindings** — schema-valid, throws at execution (§3).
-- **`surface.discovered` event** — declared in the type union, never emitted anywhere.
-- **Multi-target scanning** — `allowedTargetRefs` is an array, but only `[0]` is ever read
-  (safety.ts:6, oracle line 33). Extra entries are silently ignored.
-- **`identity.roles` / `identity.capabilities`** — accepted and stored, consumed by nothing. RBAC
-  matrix testing does not exist.
-- **`fixture.ownerIdentityId` / `fixture.resourceId`** — documentation-only; no oracle reads them.
-- **`invariant.resourceId`** — never read.
-- **Request body support** — `RequestTemplateSchema.body` exists and `FetchHttpClient` will
-  `JSON.stringify` it, but the differential-authorization oracle **never sends a body** (its
-  `requestFor()` returns only `{method, url, headers}`). Body-bearing checks are untestable today.
-- **HTTP client hardening** — no timeout, no retry, no concurrency cap, no rate limiting, no
-  `content-type` header set when a body is sent, no redirect policy, no TLS options, no proxy
-  support.
-- **Report signing / attestation** — none.
-- **Baseline / triage / suppression** — no way to mark a finding accepted; every run reports the
-  full set.
-- **Plan migration** — `schemaVersion` is `z.literal(1)` with no migration path for v2.
-- **Linting** — every package's `lint` script is literally `tsc --noEmit` (identical to
-  `typecheck`). There is no ESLint config, no Prettier, no formatter.
-- **CI pipeline** — no `.github/`, no pipeline definition of any kind.
+- **OpenAPI not wired to the CLI** — `ingestOpenApi()` works as a library function; there is no
+  `trinker compile --openapi <file>`. Low-hanging and valuable.
+- **Multi-target** — `allowedTargetRefs` is an array but only `[0]` is read.
+- **`identity.roles` / `capabilities`** — stored, consumed by nothing. No RBAC matrix testing.
+- **Linting** — every `lint` script is `tsc --noEmit`. No ESLint, no Prettier.
+- **Baseline / triage / suppression** — no way to accept a known finding.
+- **Plan migration** — `schemaVersion` is `z.literal(1)` with no v2 path.
+- **HTTP client** — has a timeout, but no retry, concurrency cap, rate limit, or redirect policy.
 
 ---
 
 ## 6. TUI
 
-`packages/trinker/src/tui.ts`, 68 lines. Launched by running `trinker` with **no arguments**.
+`packages/trinker/src/tui.ts` (rendering) + `scan-view.ts` (pure reducer, 17 tests).
+Launched by `trinker` with no arguments. Verified by driving it in a real pty.
 
-### Current commands / menu
-
-A fixed 8-item array (`tui.ts:5`):
+### Menu
 
 ```
-❯ Run Security Scan
-  View Latest Report
-  View Findings
-  Verify Finding
-  Security Coverage
-  Export Report
-  Configuration
+❯ Run Security Scan     execute the plan against the configured target
+  Findings              browse confirmed findings and their evidence
+  Latest Scan           summary and per-check outcomes
+  Security Coverage     planned vs actually verified routes
+  Export Report         write Markdown, JSON, or SARIF
+  Configuration         inspect .trinker/runtime.json
   Exit
 ```
 
-Header shows `TRINKER`, the tagline, the project directory, and
-`Runtime LLM tokens: 0 by default`.
+### Keys
 
-### Keyboard navigation
+`↑`/`↓` navigate · `Enter` select (accepts both `return` and `enter` encodings) · `q`/`Esc` back ·
+`v` verify a finding from the list · `m`/`j`/`s` export format.
 
-| Key | Action |
+Input is **queued by one persistent listener**. Previously each key was awaited with `once`, so any
+key arriving while the screen rendered was emitted to nobody and **silently dropped** — losing
+keystrokes from fast typing or paste. A closed stdin now exits instead of hanging forever.
+
+### Views
+
+| view | shows |
 |---|---|
-| `↑` / `↓` | move selection (wraps both directions, modulo arithmetic) |
-| `Enter` | activate the selected item |
-| `q` or `Esc` | quit |
-| any key | dismiss the "Press any key to return" pause after an action |
-| `1`–`9` | select a finding by number in the **Verify Finding** flow |
-| `m` / `j` / `s` | choose Markdown / JSON / SARIF in the **Export Report** flow |
+| Run Scan | target, plan, phase, elapsed, runtime tokens, progress bar over planned checks, current check + route + which identity/variant is in flight, findings as confirmed, and a warning if checks produced no verdict |
+| Findings | list with severity/oracle/route; `Enter` opens detail |
+| Finding detail | invariant, verdict, evidence notes, request + response witnesses with redacted headers and body digests, remediation, replay command |
+| Latest Scan | counts across all five statuses + per-check outcomes with reasons |
+| Coverage | planned vs verified, unverified routes grouped by cause |
+| Configuration | **read-only** inspector; validates runtime.json, lists credential header *names* without ever rendering values |
 
-Implementation: `readline.emitKeypressEvents(stdin)` + `stdin.setRawMode(true)`, with each
-keystroke awaited as a one-shot `input.once("keypress", …)` promise. Raw mode is always restored
-in a `finally` block, and the screen is cleared on exit.
+Progress is derived only from real events — it never advances on a timer.
 
-### What is actually implemented
+### Limitations
 
-| Menu item | Status | Behaviour |
-|---|---|---|
-| Run Security Scan | ✅ works | streams live events as raw JSON lines, then a summary |
-| View Latest Report | ✅ works | reads `.trinker/latest-report.json`, lists findings |
-| View Findings | ✅ works | **identical code path to "View Latest Report"** — the two menu items differ only in the printed heading |
-| Verify Finding | ✅ works | numbered list → single keypress → replays → "still confirmed" / "not reproduced" |
-| Security Coverage | ✅ works | covered/in-scope, percentage, uncovered route ids |
-| Export Report | ✅ works | writes to `.trinker/reports/` and prints the path |
-| Configuration | 🟡 informational only | prints one sentence about `.trinker/runtime.json`; **cannot edit anything** |
-| Exit | ✅ works | breaks the loop, restores the terminal |
-
-Errors inside an action are caught and shown as `Error: <message>` followed by a pause — the TUI
-does not crash out of the menu loop.
-
-### Live scan events
-
-The TUI subscribes to the real `ScanEventBus` and writes each event as
-`<type>: <JSON.stringify(data)>`. There is no formatting, no progress bar, no spinner, no colour,
-no severity styling — it is a raw event log.
-
-> ⚠️ **Verified defect — the first events never arrive.** `runPlan()` starts `execute()`
-> *synchronously*, and `execute()` emits `scan.started`, `phase.started`, `usage.updated`, and the
-> first `check.started` before it reaches its first `await`. `workflow.runProject()` calls
-> `handle.subscribe(onEvent)` only *after* `runPlan()` returns — by which time those events have
-> already fired into an empty emitter.
->
-> Observed output of a real scan (note what is missing at the top):
-> ```
-> check.progress {"checkId":"chk_order_owner_only","identityId":"identity_owner","status":200}
-> check.progress {"checkId":"chk_order_owner_only","identityId":"identity_peer","trial":1,...}
-> check.progress {"checkId":"chk_order_owner_only","identityId":"identity_peer","trial":2,...}
-> oracle.calibrated {...}
-> finding.confirmed {"findingId":"TRK-0001","severity":"high",...}
-> check.failed {...}
-> scan.completed {...}
-> ```
-> `scan.started`, `phase.started`, `usage.updated`, `check.started`, and the oracle's own
-> `phase.started {"phase":"authorization"}` are **all lost**. This affects the CLI's non-CI
-> streaming mode identically.
-
-### Current limitations
-
-- Requires a TTY; throws `Interactive mode requires a TTY. Use 'trinker run --ci' for automation.`
-  otherwise (*verified, exit 2*) — correct behaviour, but it means the TUI is untestable in CI.
-- Full-screen clear (`\x1Bc`) on every render; no diffing, no scrollback preservation.
-- No scrolling, no pagination — a long finding list or a long event stream overflows the terminal.
-- No search, no filtering, no sorting by severity.
-- Finding selection is a single keypress → only findings 1–9 are reachable.
-- `Number(keypress.sequence)` on a non-digit yields `NaN` → "Invalid finding selection."
-- No resize handling (`SIGWINCH` ignored).
-- No colour or severity highlighting anywhere.
-- No `init` or `compile` entry point in the menu — a fresh project must be set up from the CLI.
-- No live in-progress indicator; a slow scan looks frozen between events.
-- No zero-dependency framework (no Ink/blessed) — all rendering is manual `stdout.write`.
-
-### What still needs to be built
-
-1. Fix the event-subscription race so the scan feed is complete (**prerequisite for everything
-   else in the TUI**).
-2. Human-readable event rendering — a per-check progress line rather than raw JSON.
-3. A scrollable, filterable findings pane with severity colour.
-4. Finding **detail** view showing evidence (requests, responses, digests, notes) — currently the
-   richest part of a finding is invisible in the TUI.
-5. Make "Configuration" an actual editor for `.trinker/runtime.json`, or delete the menu item.
-6. Differentiate or merge "View Latest Report" and "View Findings".
-7. Multi-digit / arrow-key finding selection.
-8. `init` and `compile` menu entries.
-9. Resize + scrollback handling.
+- No scrolling/pagination — a long findings list overflows.
+- Findings selectable by arrow keys only (no jump-to-number).
+- Full-screen clear each render; no diffing, no scrollback preservation.
+- No `SIGWINCH` resize handling.
+- No `init`/`compile` entries — fresh setup is CLI-only.
+- Configuration is an inspector, not an editor.
 
 ---
 
 ## 7. Security coverage
 
-### Currently supported checks / oracles
+### Implemented
 
-**Exactly one oracle is registered** (`workflow.ts:49`: `oracles: [differentialAuthorizationOracle]`).
+| oracle | confirms | evidence required for CONFIRMED |
+|---|---|---|
+| **Differential Authorization** | Broken Object Level Authorization (high) | denied identity's response matched an allowed witness on **both** status **and** full-body sha256, after calibration measured real denial behaviour |
+| **State Mutation** | Unauthorized State Mutation (high) | a `protectedPath` **value changed** after an unauthorized write, having first been proven stable across control reads. The mutation's status code is explicitly *not* evidence |
+| **Metamorphic Response** | response depends on a caller-supplied parameter (high) | a variant violated the declared relation on an endpoint first proven deterministic, all variants sent as the same identity |
 
-#### 1. Differential Authorization → Broken Object Level Authorization (BOLA/IDOR)
+Never sufficient: a status match alone, a similar body, a 2xx that changed nothing, a difference on
+an endpoint that is not deterministic, any heuristic or score. Those are `inconclusive`.
 
-- **Oracle name:** `differential-authorization`
-- **Invariant kind:** `authorization`
-- **Finding title:** `Broken Object Level Authorization`
-- **Severity:** hard-coded `high`
-- **Remediation text:** *"Enforce ownership authorization on the server before retrieving the
-  requested resource."*
-
-**Evidence required for CONFIRMED** — all of the following must hold:
-
-1. At least one **allowed** identity returned a 2xx response (the *witness*). Without a witness
-   the check is `skipped`, never confirmed.
-2. A **denied** identity's response matched the witness on **both**:
-   - identical HTTP status code, **and**
-   - identical `sha256` digest of the **full response body** (byte-equivalence).
-3. Calibration ran first: `calibration.trials` (1–5, default 3) requests per denied identity, with
-   the observed denial status set and fingerprint set emitted as `oracle.calibrated`.
-4. The finding records, with credential headers redacted: both requests (method, URL, headers),
-   both responses (status, headers, body digest, ≤1000-char preview), the invariant statement, the
-   route id, a natural-language verdict, and the replay check id.
-
-**Explicitly NOT sufficient for CONFIRMED** (deliberate conservatism, verified in code):
-
-- A denied identity receiving *any* 2xx with a **different** body → `skipped`, reason *"Denied
-  identity returned an unexpected success but not an equivalent witness response."*
-- Similar status, similar shape, similar length, similar content-type → not a finding.
-  `bodyShape` and `contentType` inform calibration reporting only; they never gate confirmation.
-- Heuristics, scoring, and thresholds do not exist. The test
-  `"confirms only identical successful witness responses"` locks this in.
-
-This is a **high-precision / low-recall** design: it will miss BOLA where responses differ per
-user (e.g. a response echoing the caller's own id), and it will essentially never produce a false
-positive.
+> **State-mutation writes to live state and does not restore it** — inherent to testing whether a
+> write is possible. The finding says so, because replaying it can report "did not reproduce" purely
+> because the first run already changed the state.
 
 ### Planned but unavailable
 
-| Check | Schema | Oracle | Behaviour today |
-|---|---|---|---|
-| State mutation (unauthorized write / mass assignment) | ✅ `readRequest` + `protectedPaths` | ❌ | `check.skipped {"reason":"Oracle unavailable: state-mutation"}` |
-| Metamorphic response (invariant across request variants) | ✅ `variants[]` min 2 | ❌ | `check.skipped {"reason":"Oracle unavailable: metamorphic-response"}` |
-| Browser execution (XSS / DOM) | ✅ (no extra fields) | ❌ | `check.skipped {"reason":"Oracle unavailable: browser-execution"}` |
-| Out-of-band (SSRF, blind injection, XXE) | ✅ (no extra fields) | ❌ | `check.skipped {"reason":"Oracle unavailable: out-of-band"}` |
+`browser-execution`, `out-of-band` — schema-valid, no oracle, reported `unavailable`, which makes
+the run exit 3.
 
-> ⚠️ **A skipped check is easy to miss.** An unavailable oracle produces a `skipped` counter
-> increment and a `check.skipped` event — it does **not** fail the run, does not affect the CI exit
-> code, and still counts as "covered" by plan coverage. A plan full of `state-mutation` checks
-> exits `0` and reports no findings, which reads identically to "we tested and found nothing."
+### Entirely out of scope
 
-**Entirely out of scope today** (no schema, no oracle): SQL/NoSQL injection, command injection,
-path traversal, CSRF, SSRF, XXE, deserialization, rate-limit bypass, authentication bypass,
-session fixation, JWT algorithm confusion, privilege escalation across roles, mass assignment,
-GraphQL-specific attacks, race conditions / TOCTOU, and business-logic abuse.
+SQL/NoSQL injection, command injection, path traversal, CSRF, SSRF, XXE, deserialization,
+rate-limit bypass, auth bypass, session fixation, JWT algorithm confusion, cross-role privilege
+escalation, GraphQL-specific attacks, race conditions/TOCTOU, business-logic abuse.
 
 ---
 
 ## 8. Testing and verification
 
-Everything in this section was executed on 2026-09-11 in this environment.
+### ⚠️ `pnpm` is still not installed
 
-### ⚠️ `pnpm` is NOT installed
+`package.json` pins `pnpm@10.19.0` and all docs use `pnpm`, but **`pnpm` is not on `PATH`** and
+`corepack` is absent. `node_modules/` is correctly populated from a previous install, so the
+workspace binaries work directly. CI uses `pnpm/action-setup`, so the pipeline is unaffected.
 
-`package.json` declares `"packageManager": "pnpm@10.19.0"` and every documented command is a
-`pnpm` command, but **`pnpm` is not on `PATH`** (`pnpm: command not found`) and **`corepack` is
-not installed either**. `npm` and `npx` are available.
-
-`node_modules/` *is* correctly populated by a previous pnpm install (`node_modules/.pnpm/` exists,
-workspace symlinks are in place, `pnpm-lock.yaml` is present), so the repo is usable — but **none
-of the documented `pnpm` commands run as written**. All commands below use the workspace binaries
-in `node_modules/.bin/` directly.
-
-### Commands that currently work
+### Commands that work
 
 ```bash
-# ---- Test suite: 9 tests / 5 files, ALL PASSING (771 ms) ----
-./node_modules/.bin/vitest run
-
-# ---- Typecheck: CLEAN across all 8 packages (exit 0 each) ----
-for p in core compiler oracles probes report surface trinker vitest; do
-  (cd packages/$p && ../../node_modules/.bin/tsc --noEmit)
-done
-
-# ---- Build: works (tsup, ESM + .d.ts) ----
-(cd packages/core && ../../node_modules/.bin/tsup src/index.ts --format esm --dts)
-# verified: ESM build 18 ms, DTS build 1226 ms, success
-
-# ---- CLI (the `trinker` bin is NOT linked onto PATH) ----
-node packages/trinker/dist/cli.js <command>
+./node_modules/.bin/vitest run                     # 230 tests, 16 files, ~1.1s
+(cd packages/<name> && ../../node_modules/.bin/tsc --noEmit)   # clean, all 8
+(cd packages/<name> && ../../node_modules/.bin/tsup src/index.ts --format esm --dts)
+node packages/trinker/dist/cli.js <command>        # `trinker` is not linked on PATH
 ```
 
-Documented-but-currently-broken equivalents: `pnpm install`, `pnpm test`, `pnpm typecheck`,
-`pnpm build`, `pnpm -r build` — all fail with `pnpm: command not found`.
-
-### Test status — ✅ 9/9 passing
+### Test status — ✅ 230/230
 
 ```
-✓ packages/report/test/report.test.ts      (1 test)   5ms
-✓ packages/core/test/schema.test.ts        (3 tests)  7ms
-✓ packages/oracles/test/differential-authorization.test.ts (1 test) 6ms
-✓ packages/surface/test/extract.test.ts    (3 tests) 16ms
-✓ packages/trinker/test/workflow.test.ts   (1 test)  14ms
-
-Test Files  5 passed (5)
-     Tests  9 passed (9)
-  Duration  771ms
+core/architecture      15    core/safety           20    oracles/state-mutation    19
+core/events             8    core/runner           20    oracles/metamorphic        9
+core/bindings          17    core/coverage         10    oracles/differential-auth 12
+core/schema             6    surface/extract       26    surface/discover           8
+compiler/proposal      26    trinker/scan-view     17    trinker/workflow           8
 ```
 
-What they cover: plan coverage math; event sequence ownership; inline-credential rejection;
-end-to-end BOLA confirmation through `runPlan` with a fake HTTP client (asserting
-`tokens.runtimeInput === 0`); Express/Fastify/OpenAPI extraction; framework detection honesty;
-Markdown replay text + SARIF version; deterministic compilation producing an empty-check plan.
+Grew from **9 → 230** across two sessions. `safety.ts` went from zero coverage to 20 tests.
 
-What they **do not** cover: safety gates (`assertSafePlan`/`assertSafeTarget` have **zero tests** —
-the security-critical module is untested); the CLI; the TUI; `verifyFinding`; report *file*
-writing; the event-subscription race; `runtimeRef` bindings; oracle-unavailable behaviour;
-`FetchHttpClient`. There is no coverage reporting configured.
+### Typecheck / build — ✅ clean, all 8 packages
 
-### Typecheck status — ✅ clean
+`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`. Tests
+are typechecked too.
 
-All 8 packages exit 0. `tsconfig` `include` covers both `src` and `test` in every package that has
-tests, so test files are typechecked too. `strict`, `noUncheckedIndexedAccess`, and
-`exactOptionalPropertyTypes` are all on.
+### CLI smoke — ✅ all verified
 
-### Build status — ✅ working, and `dist/` is fresh
+`init`, `compile`, `compile --force`, `coverage`, `run`, `run --ci --format json|sarif|markdown`,
+`run --strict`, `verify`, `report`, `help`, unknown command, no-TTY refusal, EPIPE under `| head`.
 
-All 8 packages have a `dist/` newer than their `src/index.ts` — the committed build output matches
-current source. `packages/trinker/dist/cli.js` has the `#!/usr/bin/env node` shebang and mode
-`-rwxr-xr-x`.
-
-### CLI smoke tests — all verified (run in a scratch directory, never in the repo)
-
-| Command | Result |
-|---|---|
-| `init` | ✅ created `.trinker/runtime.json`, exit 0; idempotent on re-run |
-| `compile` | ✅ `Compiled 2 routes to .trinker/plan.json (trkp_3ad0ac8767600c78). Runtime LLM tokens: 0` |
-| `coverage` | ✅ `Coverage: 0.0% (0/2)` → `50.0% (1/2)` after authoring one check |
-| `run` (interactive) | ✅ streams events, confirms a finding — **but drops the first 4–5 events** |
-| `run --ci --format json` | ✅ JSON report to stdout; exit 0 clean / **exit 1 with a finding** |
-| `run --ci --format sarif` | ✅ valid SARIF 2.1.0 |
-| `run --ci --format markdown` | ❌ **silently emits JSON** |
-| `verify TRK-0001` | ✅ replays, prints Markdown, exit 1 (still confirmed) |
-| `verify TRK-0000` (what the report tells you to run) | ❌ `Finding TRK-0000 is not present in the latest report`, exit 2 |
-| `report --sarif` | ✅ wrote `.trinker/reports/2026-09-11-security-report.sarif` |
-| `bogus` | ✅ `trinker: Unknown command: bogus`, exit 2 |
-| no args, no TTY | ✅ `Interactive mode requires a TTY…`, exit 2 |
-
-### End-to-end live scan — ✅ verified, real finding confirmed
-
-A deliberately vulnerable `node:http` server (no ownership check on `GET /api/orders/:id`) was
-started on port 3999, a plan was hand-authored per `docs/PLAN_AUTHORING.md`, and the scan produced:
-
-```
-oracle.calibrated {"denialStatuses":[200],"denialFingerprints":["200:application/json:object:id,owner"],"deniedSamples":2,"trials":2}
-finding.confirmed {"findingId":"TRK-0001","severity":"high","checkId":"chk_order_owner_only"}
-check.failed {"reason":"Denied identity matched an allowed witness response"}
-scan.completed {"checks":{"planned":1,"passed":0,"failed":1,"skipped":0},"findings":1,"durationMs":34,"runtimeTokens":0}
-```
-
-The emitted finding had `authorization: "[REDACTED]"` in both recorded requests. **The core thesis
-works.**
-
-### Safety gates — ✅ verified by deliberate violation
-
-| Violation | Result |
-|---|---|
-| target `https://example.com`, not in `allowHosts` | aborted: `Target example.com is blocked. Use an explicit allowHosts entry for an authorized target.` exit 2 |
-| `POST` check with `mutationPolicy: "forbid"` | aborted: `Plan contains a write check while mutationPolicy is forbid` exit 2 |
-| `{"literal": "Bearer leaked-token"}` under an `authorization` header binding | rejected: `Plans may not contain inline credential-like values; use runtime configuration references instead` exit 2 |
-| arbitrary `apiKey` field in `provenance` | rejected by `.strict()` as `unrecognized_keys`, exit 2 |
-
-### Juice Shop setup / test procedure
-
-**Never executed.** What exists and what is needed:
+### Juice Shop end-to-end — ✅ verified live
 
 ```bash
-# Exists and validates (docker compose config → OK; Docker 29.7.2 present):
-cd examples/juice-shop && docker compose up -d     # image NOT pulled in this environment
-
-# What does NOT exist and must be built before this is a real test:
-#  1. an OpenAPI spec or a hand-authored plan for Juice Shop's dynamic API
-#  2. two user accounts + a documented login flow to obtain bearer tokens
-#  3. a runtime.json template with those identities and a known order/basket fixture
-#  4. invariants + differential-authorization checks over Juice Shop's BOLA-prone routes
+cd examples/juice-shop
+docker compose up -d      # wait ~20s to seed
+./setup.sh                # logs in as two seeded customers, writes .trinker/runtime.json
+trinker run               # exit 1
+trinker verify TRK-0001   # exit 1 — reproduced
 ```
 
-`trinker compile` against the Juice Shop source tree would find little of value — the README
-already says so.
+Actual result against a live container:
+
+```
+checks: {"planned":2,"passed":1,"failed":1,"inconclusive":0,"errored":0,"unavailable":0}
+finding: TRK-0001 Broken Object Level Authorization
+replay:  trinker verify TRK-0001
+coverage: planned 100%, verified 100%
+JWT leaked: false
+```
+
+Both directions in one run: `chk_basket_cross_customer` **confirms** the real BOLA (any
+authenticated customer reads any basket, byte-identical), `chk_basket_requires_auth` **passes**
+(anonymous correctly refused with 401). The negative control matters — a scanner that only ever
+fires proves nothing.
+
+### CI
+
+`.github/workflows/ci.yml`, two jobs: (1) typecheck + test + build; (2) the full Juice Shop run,
+asserting exit 1, exactly one finding of the right title, the negative control passing, no
+inconclusive/errored/unavailable checks, a replay command matching the finding ID, and no JWT
+anywhere in the report. The assertion script was validated against a real report before commit.
+
+**Never executed on GitHub** — the workflow is committed but no push has triggered a run yet.
 
 ### Known failures
 
-1. `pnpm` unavailable — **every documented command fails as written**.
-2. `trinker` not on `PATH` — must be invoked as `node packages/trinker/dist/cli.js`.
-3. `trinker verify TRK-0000` (the command printed in every report) fails.
-4. `run --ci --format markdown` silently yields JSON.
-5. The live event stream drops `scan.started`, `phase.started`, `usage.updated`, and the first
-   `check.started`.
-6. `runtimeRef` bindings turn a check into a silent skip.
-7. Router-mount prefixes produce **wrong** `pathTemplate` values labelled `confidence: "high"`.
+1. `pnpm` unavailable locally — documented commands fail as written.
+2. `trinker` not linked on PATH — use `node packages/trinker/dist/cli.js`.
+3. CI has not actually run yet.
 
 ---
 
 ## 9. Known issues / technical debt
 
-Every item below was reproduced against the actual code. Ordered by severity.
-
-### Critical
-
-**I-1 · The repository is not under version control.**
-No `.git`, no history, no branches, no remote. The entire architectural thesis rests on
-`.trinker/plan.json` being a *committed, reviewed, diffable* artifact — and the tool's own source
-is not committed. `.gitignore` is carefully written for a repo that does not exist. Any mistake is
-unrecoverable.
-
-**I-2 · Reported replay command is always wrong.**
-`differential-authorization.ts:95` hard-codes `replay: { command: "trinker verify TRK-0000" }`.
-`runner.ts:61` rewrites `finding.id` but not `finding.replay.command`. Every JSON, Markdown, and
-SARIF report therefore instructs the user to run a command that fails. This breaks the
-"every finding is mechanically replayable" guarantee at the point of delivery.
-
-**I-3 · Event-subscription race drops the start of every scan.**
-`runPlan()` (runner.ts:31) invokes `execute()` synchronously; `execute()` emits four events before
-its first `await`. `workflow.runProject()` (workflow.ts:49–50) subscribes only after `runPlan()`
-returns. Lost every time: `scan.started`, `phase.started`, `usage.updated`, the first
-`check.started`, and the oracle's `phase.started`. Fix: defer the first emit past a microtask, or
-have `runPlan` accept the listener up front, or buffer pre-subscription events in the bus.
-
-### High
-
-**I-4 · Unavailable oracles fail open and are indistinguishable from success.**
-Four of five schema-supported oracles have no implementation. A plan of `state-mutation` checks
-runs, skips everything, exits `0`, and reports zero findings. Plan coverage still counts those
-routes as covered. A user could believe they have mutation coverage when nothing executed.
-
-**I-5 · `runtimeRef` bindings are schema-valid but throw at execution.**
-`differential-authorization.ts:20` throws; `runner.ts:67` catches every oracle exception and
-converts it into a skip. A typo'd or unimplemented binding silently disables a security check.
-More broadly: **the runner swallows all oracle exceptions as skips**, so a genuine oracle bug is
-indistinguishable from a deliberate skip.
-
-**I-6 · Surface extraction emits wrong paths at `confidence: "high"`.**
-`router.get('/:id')` mounted at `app.use('/api/orders', router)` extracts as `/:id`. The extractor
-has no cross-file or mount-point analysis, yet labels every route `"high"`. `confidence` is
-currently a constant, not a measurement. Downstream, an invariant authored against a wrong
-`pathTemplate` tests the wrong URL.
-
-**I-7 · `.get('/…')` false positives.**
-Any `.get()` call with a string argument starting with `/` becomes a route —
-`cache.get('/api/secret')` was verified to produce `GET /api/secret`. The extractor never checks
-whether the receiver is actually an Express/Fastify app or router.
-
-**I-8 · Safety module has zero test coverage.**
-`packages/core/src/safety.ts` implements every guarantee that keeps Trinker from hitting
-unauthorized hosts or mutating state, and there is no `packages/core/test/safety.test.ts`. It was
-verified manually for this handoff; it is not verified by CI (of which there is none).
+All reproduced against current code. The critical/high items from last session are **fixed**.
 
 ### Medium
 
-**I-9 · `ScanEventBus`'s async iterator never terminates.** The `for await` loop in
-`events.ts:33-43` has no exit condition — nothing closes it on `scan.completed`. A consumer using
-`handle.events` directly hangs forever. Only `subscribe()` is usable today; `AsyncIterable` is
-advertised but a trap.
+**I-1 · Three orphan packages.** `@trinker/probes` and `@trinker/vitest` are 2-line stubs imported
+by nothing. `@trinker/compiler` is complete but unreachable from the CLI. Decide: wire or delete.
 
-**I-10 · `--format markdown` is silently dropped in CI.** `cli.ts:19` reduces the format to
-`sarif | json` with no validation and no warning. An unknown `--format xml` also yields JSON.
+**I-2 · `surface.discovered` is a phantom event.** Declared in `ScanEventType`, never emitted —
+`discoverSurface` runs during `compile`, which has no bus.
 
-**I-11 · `verify` renumbers findings.** `verifyFinding` re-runs a one-check plan, so numbering
-restarts — verifying `TRK-0003` produces a report about `TRK-0001`. It also never persists its
-result, so `latest-report.json` goes stale after a verify.
+**I-3 · Only `allowedTargetRefs[0]` is used.** The array is misleading.
 
-**I-12 · Only `allowedTargetRefs[0]` is ever used.** Both `safety.ts:6` and the oracle read index
-0. Additional entries are silently ignored, making the array misleading.
+**I-4 · `lint` is a lie.** Every `lint` script is `tsc --noEmit`, identical to `typecheck`. No
+ESLint, no formatter.
 
-**I-13 · Three orphan packages.** `@trinker/compiler`, `@trinker/probes`, `@trinker/vitest` are
-built, published in `exports`, and imported by nothing. `TokenBudget` has zero call sites.
+**I-5 · Evidence can carry response bodies.** `bodyPreview` stores up to 1000 bytes of witness
+response, potentially PII. Credential *headers* and known secret *values* are masked; body content
+is not. Reports are gitignored, but this deserves a policy knob.
 
-**I-14 · `surface.discovered` is a phantom event type.** Declared in `ScanEventType`, never
-emitted — `discoverSurface` runs during `compile`, which has no bus.
+**I-6 · No OpenAPI CLI path.** `ingestOpenApi()` exists and is tested but is unreachable from the
+CLI — the cheapest available win for targets whose surface is not in source.
 
-**I-15 · `lint` is a lie.** Every package's `lint` script is `tsc --noEmit`, byte-identical to
-`typecheck`. No ESLint, no Prettier, no formatting enforcement.
-
-**I-16 · No CI pipeline.** No `.github/`, no workflow of any kind. Nothing enforces that tests
-pass.
-
-**I-17 · Findings can carry up to 1000 bytes of raw response body.** `bodyPreview` is stored in
-`latest-report.json` and every exported report. Header *names* are redacted, but the body
-(potentially containing PII from the witness account) and the full **URL including query string**
-(potentially containing tokens) are stored verbatim.
-
-**I-18 · Report files collide.** `writeReport` names files `YYYY-MM-DD-security-report.<ext>` —
-the second scan on a given day overwrites the first with no warning.
-
-**I-19 · SARIF has no `locations`.** Findings cannot be anchored to a file/line, so GitHub code
-scanning cannot annotate a PR. `sourceRefs` exist on routes and would supply exactly this.
+**I-7 · State-mutation is destructive and unrestored.** Inherent, documented in the finding, but
+there is no cleanup hook or dry-run mode.
 
 ### Low
 
-- **I-20** · `FetchHttpClient` has no timeout, retry, concurrency cap, or rate limit — a scan can
-  hammer a target, and a hung request hangs the scan forever.
-- **I-21** · `FetchHttpClient` `JSON.stringify`s a body but never sets `content-type`.
-- **I-22** · The oracle never sends `request.body`; `requestFor()` returns only method/url/headers,
-  so `RequestTemplateSchema.body` is inert.
-- **I-23** · `coverage.percent` is `0` for an empty in-scope set (should arguably be 100).
-- **I-24** · Dead parameter: `extractRoutesFromSource`'s inner `add()` takes `framework` and
-  discards it with `void framework` (surface.ts:37).
-- **I-25** · TUI "View Latest Report" and "View Findings" are the same code path with a different
-  heading.
-- **I-26** · Finding severity is hard-coded `high`; there is no severity policy or mapping.
-- **I-27** · `identity.roles`, `identity.capabilities`, `fixture.ownerIdentityId`,
-  `fixture.resourceId`, and `invariant.resourceId` are accepted and stored but read by nothing.
-- **I-28** · `handle.result` is created eagerly; if a caller subscribes to events without awaiting
-  `result`, a safety-gate rejection becomes an unhandled promise rejection.
-- **I-29** · `schemaVersion` is `z.literal(1)` with no migration path.
-- **I-30** · The root `.trinker/` directory exists but is empty — Trinker has never been run
-  against its own repository.
+- **I-8** `identity.roles`/`capabilities`, `fixture.ownerIdentityId`/`resourceId`,
+  `invariant.resourceId` are stored but read by nothing.
+- **I-9** Finding severity is hard-coded `high` in all three oracles; no severity policy.
+- **I-10** No baseline/suppression — every run reports the full set.
+- **I-11** `schemaVersion` is `z.literal(1)` with no migration path.
+- **I-12** HTTP client has a timeout but no retry, concurrency cap, or rate limit.
+- **I-13** Template-literal paths with substitutions and Nest decorators are undiscovered
+  (deliberate conservative false negatives).
+- **I-14** TUI has no scrolling, no resize handling, no jump-to-finding.
+- **I-15** The root `.trinker/` is empty — Trinker has never been run against its own repository.
 
 ---
 
@@ -1086,30 +590,24 @@ scanning cannot annotate a PR. `sourceRefs` exist on routes and would supply exa
 
 | | |
 |---|---|
-| **OS** | Linux 7.1.8-arch1-3 (Arch), x86_64 |
-| **Node** | **v26.7.0** installed · `engines` requires `>=20` ✅ |
-| **Package manager** | `packageManager: "pnpm@10.19.0"` · ⚠️ **`pnpm` NOT on PATH**; `corepack` NOT installed; `npm` + `npx` available at `/usr/bin` |
-| **Install state** | ✅ populated — `node_modules/.pnpm/` present, workspace symlinks intact, `pnpm-lock.yaml` committed (49 KB) |
-| **Module system** | ESM everywhere (`"type": "module"`), TS `module`/`moduleResolution`: `NodeNext` |
-| **Build tooling** | `tsup` 8.5.1 (esbuild) → ESM + `.d.ts`; TypeScript 5.9.3 (declared `^5.8.3`) |
-| **Test tooling** | Vitest 3.2.7 (declared `^3.1.2`); root `vitest.config.ts` maps `@trinker/*` → `src`; four packages re-export it |
-| **Type config** | `strict`, `declaration`, `declarationMap`, `sourceMap`, `verbatimModuleSyntax`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, target ES2022 |
-| **Runtime deps** | `zod` 3.25.76 (declared `^3.24.3`) and `typescript` (used as a *runtime* library by `@trinker/surface` for AST parsing). Nothing else. **No HTTP library** — global `fetch`. **No LLM SDK.** |
-| **Docker** | ✅ `/usr/bin/docker` 29.7.2 + `/usr/bin/docker-compose`; `examples/juice-shop/docker-compose.yml` validates. Juice Shop image **not pulled**. |
-| **Linter / formatter** | None. |
-| **CI** | None. |
+| **OS** | Linux (Arch), x86_64 |
+| **Node** | v26.7.0 (`engines: >=20`) |
+| **Package manager** | pins `pnpm@10.19.0` · ⚠️ **not on PATH**; no corepack; `npm`/`npx` available |
+| **Install state** | ✅ populated, `pnpm-lock.yaml` committed |
+| **Modules** | ESM throughout, `NodeNext` |
+| **Build** | `tsup` 8.5.1 → ESM + `.d.ts` · TypeScript 5.9.3 |
+| **Test** | Vitest 3.2.7 · root `vitest.config.ts` aliases `@trinker/*` → `src` |
+| **Runtime deps** | `zod` 3.25.76; `typescript` (used *as a library* by `@trinker/surface`). **No HTTP library** (global `fetch`). **No LLM SDK.** |
+| **Docker** | 29.7.2 · Juice Shop image pulled and verified working |
+| **Git** | initialized, 17 commits, pushed to `git@github.com:Paardhu22/trinker.git` |
+| **Linter** | none |
 
-### Setup problems encountered
+### Setup friction
 
-1. **`pnpm` missing** — the single biggest friction point. Install with
-   `npm i -g pnpm@10.19.0`, or enable `corepack`, or use `npx pnpm@10.19.0 <cmd>`. Until then use
-   `./node_modules/.bin/{vitest,tsc,tsup}` directly.
-2. **`trinker` not linked** — invoke as `node packages/trinker/dist/cli.js`. A future
-   `pnpm link --global` (or `npm link` in `packages/trinker`) would fix this.
-3. **Not a git repository** — see I-1.
-4. Vitest must be run **from the repo root** (or from one of the four packages that re-export the
-   root config). `packages/core`, `compiler`, `probes`, and `vitest` have no `vitest.config.ts`, so
-   running Vitest from inside `packages/core` would lose the `@trinker/*` aliases.
+1. `pnpm` missing → `npm i -g pnpm@10.19.0`, or use `./node_modules/.bin/*`.
+2. `trinker` not linked → `npm link` in `packages/trinker`, or invoke the dist path.
+3. Vitest must run **from the repo root** (or a package that re-exports the root config);
+   `core`, `probes`, and `vitest` have no local `vitest.config.ts`.
 
 ---
 
@@ -1117,25 +615,22 @@ scanning cannot annotate a PR. `sourceRefs` exist on routes and would supply exa
 
 | File | Why it matters |
 |---|---|
-| **`packages/core/src/schema.ts`** (167 L) | **The single most important file.** Every contract: `PlanSchema`, `CheckSchema` union, `RuntimeConfigSchema`, cross-reference `superRefine`, and `containsInlineSecret()`. Change this and you change the product. |
-| **`packages/core/src/safety.ts`** (28 L) | Every safety guarantee: host allowlist, method allowlist, double mutation gate. Small, critical, **untested**. |
-| **`packages/core/src/runner.ts`** (73 L) | The deterministic scheduler. Oracle registry lookup, check ordering, finding-id assignment, token counters pinned to zero. Contains the event race (I-3) and the exception-swallowing skip (I-5). |
-| **`packages/core/src/events.ts`** (44 L) | The typed event model and `ScanEventBus`. Core-owned `sequence`, injectable clock, non-terminating async iterator (I-9). |
-| **`packages/core/src/findings.ts`** (36 L) | `FindingSchema` with `status: z.literal("confirmed")` — makes an unconfirmed finding unrepresentable. `ScanResult` shape. |
-| **`packages/oracles/src/differential-authorization.ts`** (103 L) | The only working oracle, and the reference implementation for every future one: witness acquisition → calibration → exact-match confirmation → redacted evidence. Also holds the `TRK-0000` replay bug (I-2). |
-| **`packages/surface/src/index.ts`** (147 L) | AST extraction, OpenAPI ingestion, resource inference, deterministic digest. Source of the extraction limitations (I-6, I-7). |
-| **`packages/trinker/src/workflow.ts`** (75 L) | The **only** filesystem adapter. Owns `.trinker/` paths and the oracle registry (line 49 — where new oracles get wired in). |
-| **`packages/trinker/src/cli.ts`** (27 L) | Command dispatch and exit-code policy (0 clean / 1 findings / 2 error). Holds the format bug (I-10). |
-| **`packages/trinker/src/tui.ts`** (68 L) | The whole interactive shell. |
-| **`packages/report/src/index.ts`** (61 L) | JSON / Markdown / SARIF renderers and file emission. |
-| **`packages/core/src/coverage.ts`** (9 L) | Plan coverage math. |
-| **`packages/compiler/src/index.ts`** (14 L) | The **reserved LLM boundary**. `TokenBudget` is the enforcement point a future provider must call. Currently orphaned. |
-| **`docs/ARCHITECTURE.md`** | Accurate and honest — including about execution coverage not being persisted. |
-| **`docs/PLAN_AUTHORING.md`** | The hand-authoring reference. Its example route id was verified byte-identical to compiler output. |
-| **`examples/juice-shop/README.md`** | Honest about the compiler's inability to reach Juice Shop's dynamic API. |
-| **`.gitignore`** | Encodes the central secret boundary: `plan.json` committed, `runtime.json` / reports / events / cache ignored. |
-| **`tsconfig.base.json`** | Strictness settings + the `@trinker/*` → `src` path aliases. |
-| **`vitest.config.ts`** (root) | The alias map that makes cross-package tests work. Four packages re-export it. |
+| `packages/core/src/schema.ts` | **The contracts.** Plan, runtime, check union, cross-reference validation, `containsInlineSecret`. |
+| `packages/core/src/safety.ts` | Every safety guarantee. 20 regression tests. |
+| `packages/core/src/runner.ts` | Scheduler, outcome classification, finding + replay ID assignment. |
+| `packages/core/src/findings.ts` | `FindingDraft` (makes the replay bug unrepresentable), `CheckStatus`, `exitCodeForScan`. |
+| `packages/core/src/bindings.ts` | Shared binding resolution + secret tracking/masking. Every oracle uses it. |
+| `packages/core/src/events.ts` | Replayable, terminating event bus. |
+| `packages/core/src/coverage.ts` | Planned vs execution coverage. |
+| `packages/core/test/architecture.test.ts` | **Guards the zero-token invariant.** If it fails, the import is the bug. |
+| `packages/oracles/src/*.ts` | The three oracles. Reference pattern: calibrate → compare exactly → redacted evidence. |
+| `packages/surface/src/extract.ts` | Receiver + mount resolution, confidence assignment. |
+| `packages/surface/src/index.ts` | Cross-file mount resolution, discovery, resource inference. |
+| `packages/trinker/src/workflow.ts` | The only filesystem adapter. **Oracle registry lives here** (`ORACLES`). |
+| `packages/trinker/src/scan-view.ts` | Pure event→view reducer. Where TUI logic is testable. |
+| `packages/compiler/src/proposal.ts` | **The LLM gate.** Everything a model emits passes through `applyProposal`. |
+| `examples/juice-shop/` | The real integration target: plan, setup script, documented reproduction. |
+| `.github/workflows/ci.yml` | Enforces the suite and the end-to-end run. |
 
 ---
 
@@ -1143,222 +638,175 @@ scanning cannot annotate a PR. `sourceRefs` exist on routes and would supply exa
 
 ### P0 — must do next
 
-**P0-1 · Put the repository under version control.** *(blocks everything; ~5 min)*
-```bash
-cd /home/paardhu/Projects/trinker
-git init && git add -A && git commit -m "Initial commit: Trinker deterministic AST framework MVP"
-```
-The whole architecture depends on committed, reviewable artifacts. Do this **before** any code
-change so the next agent has a diff to reason about. Verify `.trinker/plan.json` is *not* ignored
-while `.trinker/runtime.json` *is*.
+**P0-1 · Push and confirm CI actually passes.** *(~15 min)*
+The workflow is committed but has never run. Push, watch both jobs, fix whatever the runner
+disagrees with (most likely: Docker service startup timing, or `pnpm install --frozen-lockfile`
+against the committed lockfile). Until it goes green once, CI is an untested claim.
 
-**P0-2 · Fix the replay command (I-2).** *(~15 min, high user-visible impact)*
-Move `replay.command` construction into `runner.ts` where the id is assigned:
-```ts
-const id = `TRK-${String(findings.length + 1).padStart(4, "0")}`;
-const finding = { ...outcome.finding, id, replay: { ...outcome.finding.replay, command: `trinker verify ${id}` } };
-```
-Add a regression test asserting `finding.replay.command` contains `finding.id`. This restores the
-"every finding is replayable" guarantee.
+**P0-2 · Wire OpenAPI into the CLI.** *(~1–2 h)*
+`ingestOpenApi()` is implemented and tested but unreachable. Add
+`trinker compile --openapi <file>` that merges spec routes with AST routes. This is the highest
+value-per-hour item left: it unblocks every target whose surface is not recoverable from source —
+the exact reason Juice Shop needed a hand-written plan.
 
-**P0-3 · Fix the event-subscription race (I-3).** *(~30 min)*
-Add a `listener` option to `RunOptions` (subscribed before `execute()` is called), **or** buffer
-events in `ScanEventBus` until the first subscriber attaches, **or** `await Promise.resolve()` at
-the top of `execute()`. Add a test asserting a subscriber added via `runPlan` receives
-`scan.started` as `sequence: 1`. The typed event model is a core thesis; it currently lies to
-every consumer.
-
-**P0-4 · Make the documented commands work.** *(~10 min)*
-Install `pnpm@10.19.0` (or corepack), then verify `pnpm install && pnpm build && pnpm test &&
-pnpm typecheck` all succeed. If pnpm is intentionally unavailable, update `README.md` and this
-document with the real commands instead. Also link the CLI so `trinker` resolves on `PATH`.
-
-**P0-5 · Test the safety module (I-8).** *(~45 min)*
-Create `packages/core/test/safety.test.ts` covering all five gates: non-local host blocked,
-allowlisted host permitted, unknown target ref, method not in `allowedMethods`, write under
-`forbid`, write without `mutationAuthorized`, unknown route reference. These are the guarantees
-that keep Trinker legal; they must not regress silently.
+**P0-3 · Decide the fate of the orphan packages.** *(~30 min)*
+Either delete `@trinker/probes` and `@trinker/vitest`, or give them a real first slice. Two 2-line
+packages published in `exports` are misleading about what exists.
 
 ### P1 — important
 
-**P1-1 · Make unavailable oracles loud, not silent (I-4).** An enabled check whose oracle is not
-registered should either fail the run (non-zero exit) or be surfaced as a prominent warning in
-every report format. Separate "deliberately skipped" from "could not run" in `ScanResult`.
+**P1-1 · Second Juice Shop check using a different oracle.** Point `state-mutation` or
+`metamorphic-response` at a real Juice Shop flaw (`PUT /api/Users/:id` mass assignment is a good
+candidate). Proves the newer oracles against real software, not just fixtures.
 
-**P1-2 · Implement the state-mutation oracle.** Its schema (`readRequest` + `protectedPaths`) is
-already complete, and it is the highest-value second oracle: read → attempt unauthorized write →
-read again → confirm only if a protected path actually changed. Requires wiring
-`request.body` through `requestFor()` (I-22) and respecting both mutation gates.
+**P1-2 · Real linting.** Add ESLint + Prettier and make `lint` mean something.
 
-**P1-3 · Implement `runtimeRef` bindings (I-5), or remove them from the schema.** A schema-valid
-construct that throws at execution is worse than no construct. While there, stop swallowing oracle
-exceptions as skips — surface them as a distinct `check.errored` outcome.
+**P1-3 · Severity policy.** All three oracles hard-code `high`. Severity should come from the
+invariant or a policy map.
 
-**P1-4 · Fix surface extraction correctness (I-6, I-7).** Track `app.use(prefix, router)` mount
-points; require the receiver to be a plausible app/router (or downgrade `confidence` to `"low"`
-when it cannot be established); support template literals without substitutions; walk the full
-`.route().get().post()` chain. **Never emit `confidence: "high"` for a path that was not fully
-resolved** — a wrong path silently tests the wrong URL.
+**P1-4 · Baseline / suppression.** Accept a known finding so CI does not fail forever on a
+risk-accepted issue.
 
-**P1-5 · Fix `--format markdown` in CI (I-10).** Accept `json|markdown|sarif`, validate the value,
-and error clearly on an unknown format.
+**P1-5 · Evidence redaction policy (I-5).** A knob controlling whether response bodies are stored
+at all.
 
-**P1-6 · Add a CI workflow (I-16).** `.github/workflows/ci.yml` running install → typecheck →
-test → build on push and PR. Then add a real linter and make `lint` mean something (I-15).
-
-**P1-7 · Build the Juice Shop end-to-end evaluation.** A committed `examples/juice-shop/plan.json`
-plus a `runtime.template.json` and documented login flow. This is the first real proof the tool
-works outside a synthetic fixture, and it will surface a great deal of the debt above.
-
-**P1-8 · Add SARIF `locations` (I-19)** from `route.sourceRefs`, so findings annotate PRs.
-
-**P1-9 · TUI event rendering (see §6).** Human-readable lines instead of raw JSON, plus a finding
-detail view that actually shows the evidence.
+**P1-6 · TUI scrolling and resize.** Currently a long findings list overflows.
 
 ### P2 — later
 
-- **P2-1** Metamorphic-response oracle (schema already exists).
-- **P2-2** LLM compiler integration behind `compile --mode llm-assisted`, wired through
-  `TokenBudget`, emitting `provenance.compiler.mode: "llm-assisted"` and
-  `invariant.provenance: "llm-assisted"`. **Must never touch the run path.**
-- **P2-3** Crawler / HAR / proxy ingestion (`SourceReferenceSchema.kind` already reserves
-  `"crawler"`) to reach dynamic APIs.
-- **P2-4** OOB collector + `out-of-band` oracle (`@trinker/probes`).
-- **P2-5** Browser-execution oracle (`browser-execution`) for XSS/DOM.
-- **P2-6** `@trinker/vitest` assertion API for consumers.
-- **P2-7** Execution coverage persisted separately from plan coverage (I-4 adjacent).
-- **P2-8** HTTP client hardening: timeout, concurrency cap, rate limit, redirect policy (I-20).
-- **P2-9** Evidence redaction for URLs and bodies, with a configurable preview policy (I-17).
-- **P2-10** Baseline / triage / suppression so known-accepted findings don't fail CI.
-- **P2-11** Multi-target support (I-12); severity policy (I-26); RBAC matrix from
-  `identity.roles` (I-27); timestamped report filenames (I-18); plan migration for
-  `schemaVersion: 2` (I-29).
-- **P2-12** Decide the fate of the three orphan packages (I-13) — wire them in or delete them.
+- **P2-1** First real `CompilerProvider` implementation, plus `trinker compile --llm` behind an
+  explicit flag and a required `--token-budget`. Everything it needs already exists and is tested.
+- **P2-2** Crawler / HAR / proxy ingestion (`kind: "crawler"` is reserved).
+- **P2-3** OOB collector + `out-of-band` oracle.
+- **P2-4** `browser-execution` oracle.
+- **P2-5** `@trinker/vitest` consumer assertion API.
+- **P2-6** Multi-target support; RBAC matrix from `identity.roles`; plan migration for
+  `schemaVersion: 2`; HTTP client hardening.
 
 ---
 
 ## 13. Design decisions that MUST NOT be accidentally reversed
 
-These are the load-bearing invariants of the product. Each is currently upheld in code. **Breaking
-any of them silently destroys the product's reason to exist.**
+Each is currently upheld **and tested**. Breaking any destroys the product's reason to exist.
 
 **13.1 · `trinker run` is zero-LLM by default.**
-Enforced today by *absence*: no provider SDK is a dependency of any package, and `ScanResult.tokens`
-is hard-coded to all zeros in `runner.ts`. `@trinker/compiler` is the *only* sanctioned LLM
-boundary, and even it contains no client. **Never add an LLM dependency to `@trinker/core`,
-`@trinker/oracles`, or `@trinker/report`.** The zero-token property is asserted by the oracle test
-(`expect(result.tokens.runtimeInput).toBe(0)`) — keep that assertion.
+Enforced structurally: no provider SDK is a dependency of any scan-path package, and
+`packages/core/test/architecture.test.ts` fails if `core`/`oracles`/`report`/`surface` ever depend
+on or import `@trinker/compiler`. `ScanResult.tokens` is pinned to zero. **Do not "just import" the
+compiler into the runner.**
 
 **13.2 · Runtime LLM use must be explicit opt-in.**
-If a runtime LLM path is ever added, it must require an explicit flag, be off by default, be
-visible in every report, and be reflected in real (non-zero) token counters. A default-on runtime
-model call would make scans non-deterministic, non-reproducible, and expensive — the three things
-Trinker exists to avoid.
+If ever added: explicit flag, off by default, visible in every report, real non-zero token
+counters. A default-on runtime model call makes scans non-deterministic, irreproducible, and
+expensive — the three things Trinker exists to avoid.
 
 **13.3 · Confirmed findings require mechanical evidence.**
-`FindingSchema.status` is `z.literal("confirmed")` — an unconfirmed finding is **unrepresentable**.
-Confirmation currently requires status equality **and** `sha256` body equality. **Do not relax this
-to similarity scoring, thresholds, or heuristics.** "Denied identity got an unexpected 2xx with
-different bytes" must stay `skipped`/inconclusive. High precision over high recall is the
-deliberate trade.
+`FindingSchema.status` is `z.literal("confirmed")` — an unconfirmed finding is unrepresentable. Each
+oracle confirms only on exact mechanical evidence (byte equality / observed state change / declared
+relation violation). **Do not relax to similarity scoring or thresholds.** An unexplained success,
+an unstable value, or a non-deterministic endpoint stays `inconclusive`. High precision over high
+recall is the deliberate trade.
 
 **13.4 · Credentials must never enter the committed plan.**
-`.gitignore` commits `plan.json` and ignores `runtime.json`. `containsInlineSecret()` rejects
-credential-like keys in the plan, and `.strict()` rejects unknown fields everywhere. Identities
-and fixtures reference runtime values by **key only** (`credentialRef`, `runtimeRef`).
-**Never add a field to `PlanSchema` that could hold a URL, token, cookie, or password.** Note that
-`target.applicationId` is a logical name, *not* a URL — keep it that way.
+`plan.json` committed, `runtime.json` gitignored with **unanchored** patterns. `containsInlineSecret`
++ `.strict()` reject credential values. Identities/fixtures reference runtime data **by key only**.
+**Never add a plan field that could hold a URL, token, cookie, or password.** `target.applicationId`
+is a logical name, not a URL — keep it that way.
 
-**13.5 · Core must remain decoupled from terminal rendering.**
-`@trinker/core` imports only `zod`, `node:crypto`, and `node:events`. It knows nothing of the
-terminal, `.trinker/` paths, or the CLI. All security decisions live in core or an oracle; the CLI
-and TUI make none. **Never import a rendering or filesystem-layout concern into core**, and never
-move a security decision out of it. `workflow.ts` is the single filesystem adapter — keep it that
-way.
+**13.5 · Core must remain decoupled from terminal and filesystem.**
+`core` imports only `zod` + `node:crypto` + `node:events`, and does no filesystem I/O (tested).
+`workflow.ts` is the single filesystem adapter. TUI logic lives in a pure reducer. **Never move a
+security decision into rendering code.**
 
 **13.6 · CI must remain non-interactive.**
-`--ci` must never require a TTY, never enter raw mode, never prompt. Exit-code policy is the
-contract: **0** = clean, **1** = findings confirmed, **2** = error. The TUI's TTY guard exists
-precisely so interactive code can never leak into automation.
+`--ci` never requires a TTY, never prompts. Exit codes are the contract: **0** clean+complete,
+**1** findings, **2** usage/config error, **3** untrustworthy scan.
 
-**13.7 · Deterministic reruns consume zero runtime LLM tokens.**
-Content-addressed `planId` and `surfaceDigest`, sorted-and-deduped routes, `check.id`-ordered
-execution, an injectable clock, and byte-exact response comparison exist to make the same plan
-against the same target produce the same result. **Do not introduce randomness, wall-clock
-dependence, unordered iteration, or map-iteration-order dependence** into plan generation or check
-execution.
+**13.7 · Deterministic reruns consume zero runtime tokens.**
+Content-addressed IDs, sorted execution, injectable clock, byte-exact comparison. **Do not
+introduce randomness, wall-clock dependence, or map-iteration-order dependence.**
 
-**13.8 · `compile` invents no security claims.**
-`compileProject` emits empty `identities`/`fixtures`/`invariants`/`checks` and the most
-conservative safety policy (`mutationPolicy: "forbid"`, GET/HEAD/OPTIONS only). Asserted by
-`workflow.test.ts` (`expect(plan.checks).toEqual([])`). Authorization rules are a human (or, later,
-an explicitly-invoked LLM) decision — **the deterministic compiler must never guess one.**
+**13.8 · `compile` invents no security claims, and never destroys authored ones.**
+Deterministic compile emits empty checks and the most conservative safety policy. Recompiling
+preserves authored content and **refuses to write** rather than dropping a check whose route
+vanished. Both are tested.
 
 **13.9 · Safety gates are hard aborts, never warnings.**
-Host allowlist, method allowlist, and the **double** mutation gate (plan policy **AND**
-`runtime.mutationAuthorized`) all throw and abort the scan before any HTTP request. Localhost is
-the only implicit allowance. **Never downgrade a gate to a warning, and never let the plan alone
-authorize a write** — requiring local, uncommitted opt-in for mutations is what keeps a committed
-plan safe to merge.
+Host allowlist, method allowlist, and the **double** mutation gate all throw before any request.
+**Never let the plan alone authorize a write** — requiring local, uncommitted opt-in is what keeps a
+committed plan safe to merge.
+
+**13.10 · "0 findings" must never read as "everything was tested".**
+The five-way outcome taxonomy, the trust summary, execution coverage, exit code 3, and the SARIF
+`TRK-UNTESTED` results all exist for this. **Never collapse a non-verdict into a clean result.**
+
+**13.11 · The model proposes; code decides.**
+`applyProposal` is the only path from an LLM into a plan. It is additive-only, cannot widen safety,
+cannot introduce credentials, stamps its own provenance, and re-validates with `PlanSchema`.
+**Never let a proposal bypass it**, and never trust proposal content because "the model said so".
 
 ---
 
 ## STOPPING POINT
 
-### What the previous session (Codex) actually completed — verified
+### What this session completed — all verified by execution
 
-A **working, coherent, genuinely deterministic MVP skeleton**. This is not scaffolding; the
-central thesis was verified working end-to-end in this session against a live vulnerable server,
-producing a real CONFIRMED BOLA finding with redacted evidence and zero LLM tokens.
+**P0 — foundation hardening (commit `ab6f2b4`)**
+Four defects shared one root cause: the runner could report a clean scan for work it never did.
+Fixed: replay IDs (oracles return a draft; the runner owns ID *and* command); the event
+subscription race (the bus replays history, so a listener always sees the complete sequence, and
+the iterator terminates); the outcome taxonomy (`skipped` → `inconclusive`/`errored`/`unavailable`,
+with trust summaries, execution coverage, and exit code 3); `runtimeRef` bindings (moved to core,
+resolving against a new `values` map, masked in evidence). Also: recompilation now preserves
+authored plan content instead of destroying it, and an unhandled EPIPE no longer crashes a scan.
+20 safety tests added where there were none.
 
-Concretely completed and verified:
-- 8-package pnpm ESM monorepo; **typecheck clean** across all 8; **build working**; **9/9 tests
-  passing**.
-- `@trinker/core`: complete strict Zod contracts (plan + runtime + findings), five safety gates,
-  a deterministic scheduler, a typed 12-event bus with core-owned sequencing, coverage math.
-- `@trinker/surface`: real TypeScript-AST route extraction (Express + Fastify shapes), OpenAPI
-  object ingestion, resource inference, deterministic digest.
-- `@trinker/oracles`: the differential-authorization oracle — calibration-based, exact-match,
-  deliberately conservative, with redacted witness evidence. **Verified against a live target.**
-- `@trinker/report`: JSON, Markdown, and SARIF 2.1.0 renderers + file emission.
-- `trinker` CLI: `init`, `compile`, `coverage`, `run`, `run --ci`, `verify`, `report` — **all
-  verified working** — plus a keyboard-driven 8-item TUI with a live event feed.
-- Secret boundary enforced in code and in `.gitignore`; verified by deliberate violation.
-- `docs/ARCHITECTURE.md`, `docs/PLAN_AUTHORING.md`, `README.md`, and the Juice Shop example — all
-  **accurate and honest about their own gaps** (the PLAN_AUTHORING example route id was verified
-  byte-identical to real compiler output).
+**P0.5 — surface discovery (commit `60eb010`)**
+Receiver resolution, mount prefixes within and across files, full `.route()` chains, Fastify plugin
+prefixes, and honest confidence levels. `cache.get('/api/secret')` no longer fabricates a route;
+`app.use('/api/orders', router)` no longer records the wrong URL at high confidence.
 
-### What Codex left deliberately unimplemented
+**P1 — two more oracles (commits `057bf6c`, `5086658`)**
+`state-mutation` (evidence is the state change, not the status code; stability calibration prevents
+attributing background churn) and `metamorphic-response` (client-controlled data scoping;
+determinism calibration). Both complete schema stubs that previously had no way to express who acts.
 
-LLM provider integration (boundary reserved in `@trinker/compiler`, no client), four of five
-oracles (`state-mutation`, `metamorphic-response`, `browser-execution`, `out-of-band` — all
-schema-complete, none registered), OOB collector, browser driver, crawler/HAR ingestion, the
-`@trinker/vitest` consumer API, and a Juice Shop plan. These are all *coherent* deferrals: the
-schema reserves space for each without pretending they work.
+**P1 — TUI (commit `64acded`)**
+A real console: live scan progress from real events, navigable findings with full evidence detail,
+coverage split by cause, a read-only configuration inspector. Event reduction extracted to a pure,
+tested function. Fixed two genuine input bugs found by driving it in a pty (dropped keystrokes,
+unrecognised Enter encoding).
 
-### What it appears to have been about to do next
+**P1 — Juice Shop + CI (commits `6935817`, `a2c16d1`)**
+A reproducible path from `docker compose up` to a replayable finding against real vulnerable
+software, with a passing negative control. CI runs it and asserts the exact expected outcome.
+Also fixed a real leak risk: `.gitignore` patterns were root-anchored, so a nested project's
+`runtime.json` (bearer tokens) would have been committable.
 
-The evidence points at the Juice Shop evaluation. `examples/juice-shop/` was created with a valid
-compose file and a README that ends by naming exactly what is missing — *"Juice Shop's dynamic API
-requires a reviewed hand-written plan or a future OpenAPI/crawler input"* — and no plan was
-authored. The root `.trinker/` directory is **empty**, so Trinker has never been run against its
-own repository either.
+**P2 — LLM boundary (commit `6f987c8`)**
+Proposal contract, deterministic validation/merge, token budget, and an architecture test that
+makes the zero-token guarantee structural.
 
-Two clues suggest the session ended mid-polish rather than at a clean boundary: the `TRK-0000`
-replay placeholder was never reconciled with the runner's id assignment, and the event stream was
-never observed end-to-end (the subscription race would have been obvious on first watch).
+Suite: **9 → 230 tests**. Typecheck clean, all 8 packages build, 17 commits.
 
-### What the next agent should do first
+### What was deliberately NOT done
 
-**Start with P0-1: `git init` and commit.** The repository has no version control, and every
-subsequent change should be a reviewable diff. This takes five minutes and de-risks everything
-after it.
+- **No LLM provider and no `--llm` flag.** A flag answering "no provider configured" is fake
+  functionality. The library API is tested and ready.
+- **No crawler, OOB collector, or browser oracle.** Schema space is reserved; nothing pretends to
+  work.
+- **Template-literal and Nest-decorator routes stay undiscovered** — conservative false negatives
+  beat fabricated routes.
 
-**Then P0-2 and P0-3, in that order** — the `TRK-0000` replay bug and the event-subscription race.
-Both are small, both are localized to `runner.ts` (plus one line in the oracle), both have obvious
-regression tests, and both currently break a *stated* product guarantee: findings are replayable,
-and the event model is complete. Fixing them restores the MVP's integrity before any new surface
-area is added.
+### What the next session should do first
 
-**Do not start a new oracle, and do not start LLM integration, until P0 is closed.** The schema
-already reserves space for both; the working parts are what currently have defects.
+**Push and get CI green (P0-1).** The workflow has never executed. Everything else in this handoff
+is verified locally; CI is the one claim resting on inspection rather than observation. Expect to
+fix Docker startup timing or the frozen-lockfile install.
+
+**Then wire OpenAPI into the CLI (P0-2)** — `ingestOpenApi()` is already implemented and tested but
+unreachable, and it is what unblocks targets whose surface is not in source. That is the highest
+value-per-hour work remaining.
+
+**Do not start a provider implementation before P0-1 and P0-2.** The gate it needs is built and
+tested; what is missing is reach into real applications, not more LLM surface area.
