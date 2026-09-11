@@ -4,8 +4,8 @@ import { exitCodeForScan, type ScanEvent } from "@trinker/core";
 import { renderReport, trustSummary, type ReportFormat } from "@trinker/report";
 import { launchTui } from "./tui.js";
 import {
-  compileProject, coverageForProject, executionCoverageForProject, exportLatestReport,
-  initialiseProject, llmCompileProject, runProject, verifyFinding,
+  applyRecordedProposal, compileProject, coverageForProject, executionCoverageForProject,
+  exportLatestReport, initialiseProject, llmCompileProject, runProject, verifyFinding,
 } from "./workflow.js";
 
 const [command, ...args] = process.argv.slice(2);
@@ -34,7 +34,8 @@ const USAGE = `trinker - deterministic application security testing
       --provider <name>         openai (default) or anthropic
       --token-budget <n>        max tokens one LLM compilation may spend (default 60000)
       --model <id>              model to compile with (provider default if omitted)
-      --apply                   with --llm, write the merged plan instead of only proposing
+      --apply                   with --llm, propose AND write in one call (no separate review)
+      --apply-proposal          write the proposal already recorded, making no model call
   trinker coverage [--ci]       planned vs verified route coverage
   trinker run [options]         execute the plan
   trinker verify <finding-id>   replay the check behind a confirmed finding
@@ -139,7 +140,30 @@ async function compileWithLlm(openApiPath: string | undefined): Promise<void> {
   write(`Full proposal written to ${result.proposalPath}`);
   write(result.applied
     ? "Applied to .trinker/plan.json. Review the diff before committing it."
-    : "Nothing was written to .trinker/plan.json. Review the proposal, then re-run with --apply.");
+    : "Nothing was written to .trinker/plan.json.\nReview the proposal, then run `trinker compile --apply-proposal` to apply exactly what you reviewed.");
+}
+
+/**
+ * Apply the recorded proposal.
+ *
+ * Deliberately makes no model call: re-compiling to apply would produce a different proposal from
+ * the one that was reviewed, because a model is not deterministic.
+ */
+async function applyProposalFile(): Promise<void> {
+  const result = await applyRecordedProposal(projectDir);
+  const record = result.record as Record<string, string | number>;
+  write(`Applied the proposal recorded by ${record["provider"] ?? "the compiler"} (${record["totalTokens"] ?? "?"} tokens, already spent).`);
+  const added = result.added;
+  for (const [label, ids] of [["identity", added.identities], ["fixture", added.fixtures], ["invariant", added.invariants]] as const) {
+    for (const id of ids) write(`  + ${label} ${id}`);
+  }
+  for (const id of added.checks) {
+    write(`  + check ${id}`);
+    const why = result.rationales[id];
+    if (why) write(`      why: ${why}`);
+  }
+  write("");
+  write("Written to .trinker/plan.json. No model was called. Review the diff before committing it.");
 }
 
 function parseFormat(value: string | undefined, fallback: ReportFormat): ReportFormat {
@@ -163,6 +187,7 @@ async function main(): Promise<void> {
     const openApiPath = openApiIndex >= 0 ? args[openApiIndex + 1] : undefined;
     if (openApiIndex >= 0 && openApiPath === undefined) throw new Error("Usage: trinker compile --openapi <file.json>");
 
+    if (args.includes("--apply-proposal")) { await applyProposalFile(); return; }
     if (args.includes("--llm")) { await compileWithLlm(openApiPath); return; }
 
     const { plan, merged, addedRouteIds, removedRouteIds } = await compileProject(projectDir, {

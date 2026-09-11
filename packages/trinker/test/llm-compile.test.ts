@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CompilerProvider, ProposalRequest } from "@trinker/compiler";
-import { compileProject, llmCompileProject, loadPlan, runProject } from "../src/workflow.js";
+import { applyRecordedProposal, compileProject, llmCompileProject, loadPlan, runProject } from "../src/workflow.js";
 
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
@@ -294,5 +294,59 @@ describe("llm compile: a surface that cannot be re-derived from source", () => {
     const routeId = await routeIdOf(root, "/api/orders/:id");
     const result = await llmCompileProject(root, { tokenBudget: 50_000, compilerProvider: fakeProvider(() => goodProposal(routeId)) });
     expect(result.surfaceRefreshed).toBe(true);
+  });
+});
+
+describe("applying the reviewed proposal", () => {
+  it("applies exactly the recorded bytes, with no model call", async () => {
+    // Regression: `--apply` used to re-run the compiler, so what got applied was a *second*
+    // proposal, not the one the human had just reviewed. A model is not deterministic, so those
+    // differ — which silently defeats the whole review step.
+    const root = await project();
+    const routeId = await routeIdOf(root, "/api/orders/:id");
+
+    const proposing = fakeProvider(() => goodProposal(routeId));
+    await llmCompileProject(root, { tokenBudget: 50_000, compilerProvider: proposing });
+    expect(proposing.seen).toHaveLength(1);
+    expect((await loadPlan(root)).checks).toHaveLength(0);
+
+    const applied = await applyRecordedProposal(root);
+
+    expect(applied.added.checks).toEqual(["chk_order_owner"]);
+    expect(applied.rationales["chk_order_owner"]).toMatch(/:id path parameter/);
+    expect((await loadPlan(root)).checks.map((check) => check.id)).toEqual(["chk_order_owner"]);
+    // No second call was made.
+    expect(proposing.seen).toHaveLength(1);
+  });
+
+  it("refuses when there is no recorded proposal", async () => {
+    const root = await project();
+    await expect(applyRecordedProposal(root)).rejects.toThrow(/No proposal to apply/);
+  });
+
+  it("refuses when the plan has moved on since the proposal was produced", async () => {
+    const root = await project();
+    const routeId = await routeIdOf(root, "/api/orders/:id");
+    await llmCompileProject(root, { tokenBudget: 50_000, compilerProvider: fakeProvider(() => goodProposal(routeId)) });
+
+    // Someone edits the plan between reviewing and applying.
+    const plan = await loadPlan(root);
+    await writeFile(join(root, ".trinker", "plan.json"), JSON.stringify({ ...plan, planId: "trkp_moved_on" }, null, 2));
+
+    await expect(applyRecordedProposal(root)).rejects.toThrow(/was built from plan .* but .* is now trkp_moved_on/);
+  });
+
+  it("re-validates the file rather than trusting it, in case it was edited on disk", async () => {
+    const root = await project();
+    const routeId = await routeIdOf(root, "/api/orders/:id");
+    const result = await llmCompileProject(root, { tokenBudget: 50_000, compilerProvider: fakeProvider(() => goodProposal(routeId)) });
+
+    const stored = JSON.parse(await readFile(result.proposalPath, "utf8"));
+    // Hand-edit a credential into the recorded plan.
+    stored.plan.checks[0].request.headerBindings = { authorization: { literal: "Bearer sk-smuggled" } };
+    await writeFile(result.proposalPath, JSON.stringify(stored, null, 2));
+
+    await expect(applyRecordedProposal(root)).rejects.toThrow(/proposal\.json is invalid/);
+    expect((await loadPlan(root)).checks).toHaveLength(0);
   });
 });

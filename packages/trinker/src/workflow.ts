@@ -233,7 +233,12 @@ export async function llmCompileProject(projectDir: string, options: LlmCompileO
   await mkdir(trinkerDir(projectDir), { recursive: true });
   await writeFile(
     proposalPath(projectDir),
-    `${JSON.stringify({ record: result.record, added: result.added, rejected: result.rejected, rationales: result.rationales, notes: result.notes, plan: result.plan }, null, 2)}\n`,
+    `${JSON.stringify({
+      // The plan this was built from, so applying it later can refuse if the plan has moved on.
+      basePlanId: plan.planId,
+      record: result.record, added: result.added, rejected: result.rejected,
+      rationales: result.rationales, notes: result.notes, plan: result.plan,
+    }, null, 2)}\n`,
     "utf8",
   );
 
@@ -250,6 +255,57 @@ export async function llmCompileProject(projectDir: string, options: LlmCompileO
     applied,
     proposalPath: proposalPath(projectDir),
     surfaceRefreshed,
+  };
+}
+
+export interface ApplyProposalFileResult {
+  plan: Plan;
+  added: LlmCompileResult["added"];
+  rationales: Record<string, string>;
+  record: Record<string, unknown>;
+}
+
+/**
+ * Apply the proposal already recorded on disk.
+ *
+ * Separate from `llmCompileProject` on purpose. Re-running the compiler to apply a proposal would
+ * call the model again and apply *that* result — which is not the one a human just reviewed, since
+ * a model is not deterministic. This applies exactly the reviewed bytes, costs nothing, and refuses
+ * if the plan has changed since the proposal was produced.
+ */
+export async function applyRecordedProposal(projectDir: string): Promise<ApplyProposalFileResult> {
+  let raw: string;
+  try { raw = await readFile(proposalPath(projectDir), "utf8"); }
+  catch { throw new Error("No proposal to apply. Run `trinker compile --llm` first."); }
+
+  const stored = JSON.parse(raw) as {
+    basePlanId?: string;
+    plan?: unknown;
+    added?: LlmCompileResult["added"];
+    rationales?: Record<string, string>;
+    record?: Record<string, unknown>;
+  };
+
+  const current = await loadPlan(projectDir);
+  if (stored.basePlanId !== undefined && stored.basePlanId !== current.planId) {
+    throw new Error(
+      `The recorded proposal was built from plan ${stored.basePlanId}, but .trinker/plan.json is now ${current.planId}.\n` +
+      "Re-run `trinker compile --llm` so the proposal is reviewed against the current plan.",
+    );
+  }
+
+  // Re-validate rather than trusting the file: it is on disk and may have been edited.
+  const parsed = PlanSchema.safeParse(stored.plan);
+  if (!parsed.success) {
+    throw new Error(describeIssues(".trinker/proposal.json", parsed.error.issues));
+  }
+
+  await writeFile(planPath(projectDir), `${JSON.stringify(parsed.data, null, 2)}\n`, "utf8");
+  return {
+    plan: parsed.data,
+    added: stored.added ?? { identities: [], fixtures: [], invariants: [], checks: [] },
+    rationales: stored.rationales ?? {},
+    record: stored.record ?? {},
   };
 }
 
