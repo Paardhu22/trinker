@@ -86,22 +86,30 @@ jobs:
 
       - name: Assert the expected outcome
         working-directory: examples/juice-shop
-        # The negative control must pass and the vulnerable check must confirm. A run where
-        # everything fires is as broken as a run where nothing does.
+        # Two oracles must each confirm their own real flaw, and the negative control must pass.
+        # The container is freshly seeded every run, which is what makes the state-mutation check
+        # deterministic: re-running it against already-mutated state is inconclusive by design.
         run: |
           node -e '
             const report = require("./report.json");
             const { checks, findings } = report.result;
             const fail = (message) => { console.error(message); process.exit(1); };
 
-            if (findings.length !== 1) fail(`expected exactly 1 finding, got ${findings.length}`);
-            if (findings[0].title !== "Broken Object Level Authorization") fail(`unexpected finding: ${findings[0].title}`);
-            if (findings[0].replay.command !== `trinker verify ${findings[0].id}`) fail("replay command does not match the finding id");
+            const titles = findings.map((f) => f.title).sort();
+            const expected = ["Broken Object Level Authorization", "Unauthorized State Mutation"];
+            if (JSON.stringify(titles) !== JSON.stringify(expected)) {
+              fail(`expected exactly ${JSON.stringify(expected)}, got ${JSON.stringify(titles)}`);
+            }
+            for (const finding of findings) {
+              if (finding.replay.command !== `trinker verify ${finding.id}`) fail(`replay command does not match ${finding.id}`);
+            }
+            // The negative control must pass. A run where everything fires is as broken as one
+            // where nothing does, and only the combination shows the oracles discriminate.
             if (checks.passed !== 1) fail(`negative control did not pass: ${JSON.stringify(checks)}`);
             if (checks.inconclusive || checks.errored || checks.unavailable) fail(`scan was incomplete: ${JSON.stringify(checks)}`);
             if (JSON.stringify(report).includes("eyJ0eXAiOiJKV1Q")) fail("a JWT leaked into the report");
 
-            console.log("confirmed:", findings[0].id, findings[0].title);
+            for (const finding of findings) console.log("confirmed:", finding.id, "-", finding.oracle, "-", finding.title);
             console.log("negative control passed; no credentials in report");
           '
 

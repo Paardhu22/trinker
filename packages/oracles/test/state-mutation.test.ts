@@ -91,7 +91,21 @@ describe("state mutation: confirmation requires an observed state change", () =>
   it("does NOT confirm on a 200 alone when the state did not actually change", async () => {
     const result = await scan(server({ enforce: false, acceptButIgnore: true }).client);
     expect(result.findings).toHaveLength(0);
+  });
+
+  it("is inconclusive, not passed, when an unauthorized write returns 2xx but nothing moved", async () => {
+    // A 2xx cannot distinguish "the write was rejected" from "the write set the value it already
+    // had". Reporting a pass there would claim the invariant held on no evidence.
+    const result = await scan(server({ enforce: false, acceptButIgnore: true }).client);
+    expect(result.checks.inconclusive).toBe(1);
+    expect(result.checks.passed).toBe(0);
+    expect(result.outcomes[0]?.reason).toMatch(/cannot distinguish a rejected write from one that set the value it already had/);
+  });
+
+  it("passes only when the server actually refused the write", async () => {
+    const result = await scan(server({ enforce: true }).client);
     expect(result.checks.passed).toBe(1);
+    expect(result.checks.inconclusive).toBe(0);
   });
 
   it("records the before and after values as evidence", async () => {

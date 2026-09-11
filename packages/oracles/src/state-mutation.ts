@@ -104,7 +104,19 @@ export const stateMutationOracle: Oracle = {
         return { status: "inconclusive", reason: `The protected state could not be re-read after the mutation attempt (status ${after.response.status}).` };
       }
       const changed = changedPaths(control, after);
-      if (changed.length === 0) continue;
+      if (changed.length === 0) {
+        // Nothing moved. If the server refused the write, the invariant genuinely held. If it
+        // answered 2xx, we cannot tell a rejection from a no-op — the request may simply have
+        // written the value that was already there — so the check proves nothing and must not
+        // report a pass.
+        if (isSuccess(mutationResponse)) {
+          return {
+            status: "inconclusive",
+            reason: `${identityId} received ${mutationResponse.status} for an unauthorized write and the protected state did not change. That cannot distinguish a rejected write from one that set the value it already had; re-run against freshly seeded state, or mutate to a value the state does not currently hold.`,
+          };
+        }
+        continue;
+      }
 
       const secretList = [...secrets];
       const witness = (response: HttpResponse) => ({

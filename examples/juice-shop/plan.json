@@ -1,19 +1,69 @@
 {
   "schemaVersion": 1,
-  "planId": "trkp_juiceshop_basket_v1",
+  "planId": "trkp_juiceshop_basket_v2",
   "surfaceDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
   "target": {
     "applicationId": "owasp-juice-shop",
-    "allowedTargetRefs": ["local"]
+    "allowedTargetRefs": [
+      "local"
+    ]
   },
   "surface": {
-    "frameworks": ["unknown"],
+    "frameworks": [
+      "unknown"
+    ],
     "routes": [
       {
         "id": "route_get_rest_basket_id_juiceshop",
         "method": "GET",
         "pathTemplate": "/rest/basket/:id",
-        "parameters": [{ "name": "id", "location": "path", "required": true }],
+        "parameters": [
+          {
+            "name": "id",
+            "location": "path",
+            "required": true
+          }
+        ],
+        "sourceRefs": [
+          {
+            "kind": "manual",
+            "path": "examples/juice-shop/README.md",
+            "note": "Hand-declared. Juice Shop serves a bundled API that the source extractor cannot reach."
+          }
+        ],
+        "confidence": "high"
+      },
+      {
+        "id": "route_get_api_basketitems_id_juiceshop",
+        "method": "GET",
+        "pathTemplate": "/api/BasketItems/:id",
+        "parameters": [
+          {
+            "name": "id",
+            "location": "path",
+            "required": true
+          }
+        ],
+        "sourceRefs": [
+          {
+            "kind": "manual",
+            "path": "examples/juice-shop/README.md",
+            "note": "Hand-declared. Juice Shop serves a bundled API that the source extractor cannot reach."
+          }
+        ],
+        "confidence": "high"
+      },
+      {
+        "id": "route_put_api_basketitems_id_juiceshop",
+        "method": "PUT",
+        "pathTemplate": "/api/BasketItems/:id",
+        "parameters": [
+          {
+            "name": "id",
+            "location": "path",
+            "required": true
+          }
+        ],
         "sourceRefs": [
           {
             "kind": "manual",
@@ -29,7 +79,19 @@
         "id": "resource_basket",
         "name": "basket",
         "routeParameter": "id",
-        "routeIds": ["route_get_rest_basket_id_juiceshop"],
+        "routeIds": [
+          "route_get_rest_basket_id_juiceshop"
+        ],
+        "sourceRefs": []
+      },
+      {
+        "id": "resource_basket_item",
+        "name": "basketItem",
+        "routeParameter": "id",
+        "routeIds": [
+          "route_get_api_basketitems_id_juiceshop",
+          "route_put_api_basketitems_id_juiceshop"
+        ],
         "sourceRefs": []
       }
     ]
@@ -38,13 +100,19 @@
     {
       "id": "identity_basket_owner",
       "credentialRef": "basket_owner",
-      "roles": ["customer"],
-      "capabilities": ["read-own-basket"]
+      "roles": [
+        "customer"
+      ],
+      "capabilities": [
+        "read-own-basket"
+      ]
     },
     {
       "id": "identity_other_customer",
       "credentialRef": "other_customer",
-      "roles": ["customer"],
+      "roles": [
+        "customer"
+      ],
       "capabilities": []
     },
     {
@@ -59,6 +127,12 @@
       "runtimeRef": "ownedBasket",
       "resourceId": "resource_basket",
       "ownerIdentityId": "identity_basket_owner"
+    },
+    {
+      "id": "fixture_owned_basket_item",
+      "runtimeRef": "ownedBasketItem",
+      "resourceId": "resource_basket_item",
+      "ownerIdentityId": "identity_basket_owner"
     }
   ],
   "invariants": [
@@ -66,7 +140,9 @@
       "id": "inv_basket_owner_only",
       "kind": "authorization",
       "statement": "A basket may only be read by the customer who owns it.",
-      "routeIds": ["route_get_rest_basket_id_juiceshop"],
+      "routeIds": [
+        "route_get_rest_basket_id_juiceshop"
+      ],
       "resourceId": "resource_basket",
       "provenance": "manual"
     },
@@ -74,8 +150,20 @@
       "id": "inv_basket_requires_auth",
       "kind": "authorization",
       "statement": "A basket may only be read by an authenticated customer.",
-      "routeIds": ["route_get_rest_basket_id_juiceshop"],
+      "routeIds": [
+        "route_get_rest_basket_id_juiceshop"
+      ],
       "resourceId": "resource_basket",
+      "provenance": "manual"
+    },
+    {
+      "id": "inv_basket_item_owner_only_writes",
+      "kind": "state-mutation",
+      "statement": "Only the customer who owns a basket may change the items in it.",
+      "routeIds": [
+        "route_put_api_basketitems_id_juiceshop"
+      ],
+      "resourceId": "resource_basket_item",
       "provenance": "manual"
     }
   ],
@@ -87,13 +175,24 @@
       "oracle": "differential-authorization",
       "request": {
         "routeId": "route_get_rest_basket_id_juiceshop",
-        "pathBindings": { "id": { "fixtureRef": "fixture_owned_basket", "field": "id" } },
+        "pathBindings": {
+          "id": {
+            "fixtureRef": "fixture_owned_basket",
+            "field": "id"
+          }
+        },
         "queryBindings": {},
         "headerBindings": {}
       },
-      "allowedIdentityIds": ["identity_basket_owner"],
-      "deniedIdentityIds": ["identity_other_customer"],
-      "calibration": { "trials": 3 }
+      "allowedIdentityIds": [
+        "identity_basket_owner"
+      ],
+      "deniedIdentityIds": [
+        "identity_other_customer"
+      ],
+      "calibration": {
+        "trials": 3
+      }
     },
     {
       "id": "chk_basket_requires_auth",
@@ -102,22 +201,83 @@
       "oracle": "differential-authorization",
       "request": {
         "routeId": "route_get_rest_basket_id_juiceshop",
-        "pathBindings": { "id": { "fixtureRef": "fixture_owned_basket", "field": "id" } },
+        "pathBindings": {
+          "id": {
+            "fixtureRef": "fixture_owned_basket",
+            "field": "id"
+          }
+        },
         "queryBindings": {},
         "headerBindings": {}
       },
-      "allowedIdentityIds": ["identity_basket_owner"],
-      "deniedIdentityIds": ["identity_anonymous"],
-      "calibration": { "trials": 3 }
+      "allowedIdentityIds": [
+        "identity_basket_owner"
+      ],
+      "deniedIdentityIds": [
+        "identity_anonymous"
+      ],
+      "calibration": {
+        "trials": 3
+      }
+    },
+    {
+      "id": "chk_basket_item_cross_customer_write",
+      "invariantId": "inv_basket_item_owner_only_writes",
+      "enabled": true,
+      "oracle": "state-mutation",
+      "request": {
+        "routeId": "route_put_api_basketitems_id_juiceshop",
+        "pathBindings": {
+          "id": {
+            "fixtureRef": "fixture_owned_basket_item",
+            "field": "id"
+          }
+        },
+        "queryBindings": {},
+        "headerBindings": {},
+        "body": {
+          "quantity": 5
+        }
+      },
+      "readRequest": {
+        "routeId": "route_get_api_basketitems_id_juiceshop",
+        "pathBindings": {
+          "id": {
+            "fixtureRef": "fixture_owned_basket_item",
+            "field": "id"
+          }
+        },
+        "queryBindings": {},
+        "headerBindings": {}
+      },
+      "readIdentityId": "identity_basket_owner",
+      "unauthorizedIdentityIds": [
+        "identity_other_customer"
+      ],
+      "protectedPaths": [
+        "data.quantity"
+      ],
+      "calibration": {
+        "stabilityReads": 2
+      }
     }
   ],
   "coverage": {
-    "inScopeRouteIds": ["route_get_rest_basket_id_juiceshop"],
+    "inScopeRouteIds": [
+      "route_get_rest_basket_id_juiceshop",
+      "route_get_api_basketitems_id_juiceshop",
+      "route_put_api_basketitems_id_juiceshop"
+    ],
     "exclusions": []
   },
   "safety": {
-    "mutationPolicy": "forbid",
-    "allowedMethods": ["GET", "HEAD", "OPTIONS"]
+    "mutationPolicy": "explicit-authorization-required",
+    "allowedMethods": [
+      "GET",
+      "HEAD",
+      "OPTIONS",
+      "PUT"
+    ]
   },
   "provenance": {
     "sources": [
@@ -127,6 +287,9 @@
         "note": "Authored by hand against a local Juice Shop container for evaluation."
       }
     ],
-    "compiler": { "mode": "manual", "compilerVersion": "0.1.0" }
+    "compiler": {
+      "mode": "manual",
+      "compilerVersion": "0.1.0"
+    }
   }
 }
