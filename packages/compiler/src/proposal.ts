@@ -36,6 +36,11 @@ export const PlanProposalSchema = z.object({
   fixtures: z.array(ProposedFixtureSchema).default([]),
   invariants: z.array(ProposedInvariantSchema).default([]),
   checks: z.array(CheckSchema).default([]),
+  /**
+   * check id -> why the compiler proposed it. Surfaced in the review diff so a reviewer can reject
+   * reasoning they disagree with. Never interpreted, and never written into the plan.
+   */
+  rationales: z.record(z.string().max(2000)).default({}),
   /** Free text for the human reviewer only. Never interpreted. */
   notes: z.array(z.string().max(1000)).default([]),
 }).strict();
@@ -52,6 +57,8 @@ export interface ApplyProposalResult {
   added: { identities: string[]; fixtures: string[]; invariants: string[]; checks: string[] };
   rejected: RejectedItem[];
   notes: string[];
+  /** Rationale for each check that was actually accepted, for the human review step. */
+  rationales: Record<string, string>;
 }
 
 export interface ApplyProposalOptions {
@@ -184,6 +191,7 @@ export function applyProposal(plan: Plan, rawProposal: unknown, options: ApplyPr
     },
     rejected,
     notes: proposal.notes,
+    rationales: Object.fromEntries(checks.map((check) => [check.id, proposal.rationales[check.id] ?? "(no rationale given)"])),
   };
 }
 

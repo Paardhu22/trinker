@@ -28,6 +28,20 @@ export class BudgetExceededError extends Error {
 }
 
 /**
+ * A provider could not produce a proposal.
+ *
+ * Distinct from a validation failure: this means the model was never asked, refused, or answered
+ * with something unusable. Messages must stay free of credentials and request bodies, because they
+ * surface in terminal output and CI logs.
+ */
+export class ProviderError extends Error {
+  public constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options as ErrorOptions);
+    this.name = "ProviderError";
+  }
+}
+
+/**
  * Spend guard for a compilation.
  *
  * Two steps, deliberately: `assertFits` refuses a call whose estimate would overrun, and `record`
@@ -79,6 +93,8 @@ export interface ProposalResponse {
   /** Raw, unvalidated proposal. It is parsed and filtered before anything reaches a plan. */
   proposal: unknown;
   usage: TokenUsage;
+  /** Recorded with the compilation so a plan can be traced to the model and prompt that produced it. */
+  metadata?: { model?: string; promptVersion?: string } | undefined;
 }
 
 export interface CompilerProvider {

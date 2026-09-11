@@ -5,7 +5,7 @@ import { renderReport, trustSummary, type ReportFormat } from "@trinker/report";
 import { launchTui } from "./tui.js";
 import {
   compileProject, coverageForProject, executionCoverageForProject, exportLatestReport,
-  initialiseProject, runProject, verifyFinding,
+  initialiseProject, llmCompileProject, runProject, verifyFinding,
 } from "./workflow.js";
 
 const [command, ...args] = process.argv.slice(2);
@@ -30,6 +30,10 @@ const USAGE = `trinker - deterministic application security testing
   trinker compile [options]     extract routes into .trinker/plan.json
       --force                   discard authored checks and regenerate
       --openapi <file.json>     also ingest an OpenAPI document
+      --llm                     ALSO ask a model to propose checks (opt-in, costs tokens)
+      --token-budget <n>        max tokens one LLM compilation may spend (default 60000)
+      --model <id>              model to compile with (default claude-opus-5)
+      --apply                   with --llm, write the merged plan instead of only proposing
   trinker coverage [--ci]       planned vs verified route coverage
   trinker run [options]         execute the plan
   trinker verify <finding-id>   replay the check behind a confirmed finding
@@ -41,11 +45,85 @@ run options:
   --format <fmt>        json | markdown | sarif (default json)
   --strict              treat inconclusive checks as a failure to test
 
+'trinker run' never contacts a model. Only 'compile --llm' does, and only when you pass it.
+
 exit codes:
   0  every planned check reached a verdict, nothing confirmed
   1  a violation was mechanically confirmed
   2  usage or configuration error
   3  the scan could not be trusted (a check errored or had no oracle)`;
+
+const DEFAULT_TOKEN_BUDGET = 60_000;
+
+function numericFlag(name: string, fallback: number): number {
+  const index = args.indexOf(name);
+  if (index < 0) return fallback;
+  const raw = args[index + 1];
+  const value = Number(raw);
+  if (raw === undefined || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`${name} needs a positive whole number, for example ${name} ${fallback}.`);
+  }
+  return value;
+}
+
+/**
+ * The LLM-assisted compile.
+ *
+ * Non-destructive by default: it records the proposal and prints what would change, and only
+ * rewrites `.trinker/plan.json` when `--apply` is passed. The plan is a reviewed security artifact,
+ * so a model's suggestion becomes one by a human's decision, not by running a command.
+ */
+async function compileWithLlm(openApiPath: string | undefined): Promise<void> {
+  const apiKey = process.env["ANTHROPIC_API_KEY"] ?? "";
+  const modelIndex = args.indexOf("--model");
+  const apply = args.includes("--apply");
+
+  const result = await llmCompileProject(projectDir, {
+    apiKey,
+    ...(modelIndex >= 0 && args[modelIndex + 1] !== undefined ? { model: args[modelIndex + 1] } : {}),
+    tokenBudget: numericFlag("--token-budget", DEFAULT_TOKEN_BUDGET),
+    apply,
+    ...(openApiPath !== undefined ? { openApiPath } : {}),
+  });
+
+  const record = result.record as Record<string, number | string>;
+  write(`Compiled with ${record["provider"]} (prompt ${record["promptVersion"]}).`);
+  write(`Tokens: ${record["inputTokens"]} in + ${record["outputTokens"]} out = ${record["totalTokens"]} of ${record["tokenBudget"]} budget.`);
+  write(`Checks: ${record["checksProposed"]} proposed, ${record["checksAccepted"]} accepted, ${record["checksRejected"]} rejected, over ${record["routesConsidered"]} route(s).`);
+  write("");
+
+  const added = result.added;
+  const total = added.identities.length + added.fixtures.length + added.invariants.length + added.checks.length;
+  if (total === 0) write("No additions survived validation.");
+  else {
+    write("Proposed additions:");
+    for (const [label, ids] of [["identity", added.identities], ["fixture", added.fixtures], ["invariant", added.invariants]] as const) {
+      for (const id of ids) write(`  + ${label} ${id}`);
+    }
+    for (const id of added.checks) {
+      write(`  + check ${id}`);
+      const why = result.rationales[id];
+      if (why) write(`      why: ${why}`);
+    }
+  }
+
+  if (result.rejected.length > 0) {
+    write("");
+    write("Rejected by validation (never merged):");
+    for (const item of result.rejected) write(`  - ${item.kind} ${item.id}: ${item.reason}`);
+  }
+  if (result.notes.length > 0) {
+    write("");
+    write("Compiler notes:");
+    for (const note of result.notes) write(`  · ${note}`);
+  }
+
+  write("");
+  write(`Full proposal written to ${result.proposalPath}`);
+  write(result.applied
+    ? "Applied to .trinker/plan.json. Review the diff before committing it."
+    : "Nothing was written to .trinker/plan.json. Review the proposal, then re-run with --apply.");
+}
 
 function parseFormat(value: string | undefined, fallback: ReportFormat): ReportFormat {
   if (value === undefined) return fallback;
@@ -67,6 +145,9 @@ async function main(): Promise<void> {
     const openApiIndex = args.indexOf("--openapi");
     const openApiPath = openApiIndex >= 0 ? args[openApiIndex + 1] : undefined;
     if (openApiIndex >= 0 && openApiPath === undefined) throw new Error("Usage: trinker compile --openapi <file.json>");
+
+    if (args.includes("--llm")) { await compileWithLlm(openApiPath); return; }
+
     const { plan, merged, addedRouteIds, removedRouteIds } = await compileProject(projectDir, {
       force: args.includes("--force"),
       ...(openApiPath !== undefined ? { openApiPath } : {}),

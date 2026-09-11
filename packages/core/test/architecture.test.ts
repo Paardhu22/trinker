@@ -57,6 +57,33 @@ describe("the scan path cannot reach an LLM", () => {
   });
 });
 
+describe("the CLI reaches the compiler only on the LLM path", () => {
+  const cliSources = async (): Promise<Map<string, string>> => {
+    const root = join(packagesDir, "trinker", "src");
+    const files = new Map<string, string>();
+    for (const entry of await readdir(root, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".ts")) files.set(entry.name, await readFile(join(root, entry.name), "utf8"));
+    }
+    return files;
+  };
+
+  it("never imports @trinker/compiler statically", async () => {
+    // A static import would pull the compiler — and its provider — into every `trinker run`.
+    // The LLM path uses `await import(...)` so a scan never loads a model client at all.
+    for (const [name, source] of await cliSources()) {
+      const staticImport = /^\s*import\s[^;]*from\s+["']@trinker\/compiler["']/m;
+      expect(source, `${name} imports @trinker/compiler statically`).not.toMatch(staticImport);
+    }
+  });
+
+  it("carries no direct provider SDK dependency outside the compiler", async () => {
+    const dependencies = Object.keys((await manifest("trinker")).dependencies ?? {});
+    for (const dependency of dependencies) {
+      expect(dependency).not.toMatch(/anthropic|openai|@ai-sdk|langchain|cohere|mistral|google-genai/i);
+    }
+  });
+});
+
 describe("core stays independent of presentation and filesystem layout", () => {
   it("does not import terminal or CLI concerns", async () => {
     for (const source of await sourceFiles("core")) {

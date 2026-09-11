@@ -13,6 +13,7 @@ import { discoverSurface, ingestOpenApi, mergeSurfaces, type Surface } from "@tr
 export const ORACLES = [differentialAuthorizationOracle, stateMutationOracle, metamorphicResponseOracle];
 
 const trinkerDir = (projectDir: string) => join(projectDir, ".trinker");
+const proposalPath = (projectDir: string) => join(trinkerDir(projectDir), "proposal.json");
 const planPath = (projectDir: string) => join(trinkerDir(projectDir), "plan.json");
 const runtimePath = (projectDir: string) => join(trinkerDir(projectDir), "runtime.json");
 const latestPath = (projectDir: string) => join(trinkerDir(projectDir), "latest-report.json");
@@ -143,6 +144,91 @@ async function readOpenApi(path: string): Promise<{ surface: Surface; source: st
     throw new Error(`${path} declared no usable operations under "paths".`);
   }
   return { surface, source: path };
+}
+
+/* ------------------------------------------------------- LLM-assisted compilation */
+
+export interface LlmCompileOptions {
+  /** Read from the environment by the caller. Never sourced from, or written to, the plan. */
+  apiKey?: string | undefined;
+  model?: string | undefined;
+  /** Maximum tokens this compilation may spend. Required; there is no unlimited mode. */
+  tokenBudget: number;
+  /** Write the merged plan. Without it the proposal is only recorded for review. */
+  apply?: boolean;
+  timeoutMs?: number | undefined;
+  /** Injected by tests so the whole flow runs without an API key or a network. */
+  provider?: unknown;
+  openApiPath?: string | undefined;
+}
+
+export interface LlmCompileResult {
+  plan: Plan;
+  added: { identities: string[]; fixtures: string[]; invariants: string[]; checks: string[] };
+  rejected: Array<{ kind: string; id: string; reason: string }>;
+  rationales: Record<string, string>;
+  notes: string[];
+  record: Record<string, unknown>;
+  /** True when `.trinker/plan.json` was actually rewritten. */
+  applied: boolean;
+  proposalPath: string;
+}
+
+/**
+ * Compile with an LLM proposing checks.
+ *
+ * Explicitly opt-in, and reached from nowhere else: `@trinker/compiler` is loaded by dynamic
+ * import so that `trinker run` never brings a provider into the process at all.
+ *
+ * The deterministic compile runs first, so the model reasons about a current surface and a plan
+ * that still contains every authored check. Nothing the model returns is trusted — it is filtered
+ * and re-validated by `applyProposal` before it can become a plan — and by default the merged plan
+ * is only *recorded* for review rather than written, because silently rewriting a reviewed security
+ * artifact on the strength of a model's suggestion is exactly what this project exists to avoid.
+ */
+export async function llmCompileProject(projectDir: string, options: LlmCompileOptions): Promise<LlmCompileResult> {
+  const { compileWithProvider, createAnthropicProvider } = await import("@trinker/compiler");
+
+  // Refresh the surface first; this also preserves everything a human authored.
+  const { plan } = await compileProject(projectDir, {
+    ...(options.openApiPath !== undefined ? { openApiPath: options.openApiPath } : {}),
+  });
+
+  const provider = (options.provider as Parameters<typeof compileWithProvider>[0]["provider"] | undefined)
+    ?? createAnthropicProvider({
+      apiKey: options.apiKey ?? "",
+      model: options.model,
+      timeoutMs: options.timeoutMs,
+    });
+
+  const result = await compileWithProvider({
+    plan,
+    provider,
+    availableOracles: ORACLES.map((oracle) => oracle.name),
+    tokenBudget: options.tokenBudget,
+    rootDir: projectDir,
+  });
+
+  await mkdir(trinkerDir(projectDir), { recursive: true });
+  await writeFile(
+    proposalPath(projectDir),
+    `${JSON.stringify({ record: result.record, added: result.added, rejected: result.rejected, rationales: result.rationales, notes: result.notes, plan: result.plan }, null, 2)}\n`,
+    "utf8",
+  );
+
+  const applied = options.apply === true;
+  if (applied) await writeFile(planPath(projectDir), `${JSON.stringify(result.plan, null, 2)}\n`, "utf8");
+
+  return {
+    plan: result.plan,
+    added: result.added,
+    rejected: result.rejected,
+    rationales: result.rationales,
+    notes: result.notes,
+    record: result.record as unknown as Record<string, unknown>,
+    applied,
+    proposalPath: proposalPath(projectDir),
+  };
 }
 
 async function loadPlanIfPresent(projectDir: string): Promise<Plan | undefined> {

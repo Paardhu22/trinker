@@ -8,6 +8,7 @@ coverage/
 # and is meant to be committed and diffed.
 **/.trinker/runtime.json
 **/.trinker/latest-report.json
+**/.trinker/proposal.json
 **/.trinker/reports/
 **/.trinker/events/
 **/.trinker/cache/
