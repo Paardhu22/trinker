@@ -1,14 +1,14 @@
 # Trinker — Session Handoff
 
-**Updated:** 2026-09-11 (session 2)
+**Updated:** 2026-09-11 (session 3)
 **Basis:** Written from the repository as it actually is. Every claim below was verified by running
 the code — the full suite, typecheck, build, CLI smoke tests, a pty-driven TUI session, and a live
 scan against a Docker Juice Shop container. Nothing here is claimed on the strength of a commit
 message.
 
-**State:** the deterministic foundation is now hardened and covered. Three oracles are implemented,
-the end-to-end path is proven against real vulnerable software, and CI enforces both. The LLM
-boundary is built but no provider ships.
+**State:** the deterministic foundation is hardened and covered. **All three implemented oracles
+now confirm real flaws against a live Juice Shop container**, each with a passing negative control,
+and CI enforces the whole thing. The LLM boundary is built but no provider ships.
 
 ---
 
@@ -62,7 +62,7 @@ dependency graph (§4, §13).
 
 ### Packages
 
-~3,400 lines of source, ~2,400 lines of test, 84 tracked files, 20 commits.
+~3,500 lines of source, ~2,600 lines of test, 84 tracked files, 24 commits.
 
 | Package | Name | src | test | Responsibility | Status |
 |---|---|---|---|---|---|
@@ -278,7 +278,8 @@ it already had. A pass requires the server to have actually refused the write. D
 **Metamorphic response** — reference variant repeated as a determinism control, then variants
 compared under a declared `identical` / `status-identical` relation. Catches client-controlled data
 scoping. A non-deterministic endpoint is `inconclusive`, with the message pointing at the weaker
-relation.
+relation. **Proven against Juice Shop:** confirms on `GET /api/BasketItems?BasketId=`, passes on
+`GET /api/Addresss?UserId=`.
 
 Every oracle calibrates before it judges. No heuristics, no scoring.
 
@@ -331,8 +332,8 @@ See §6.
 
 ### Juice Shop — ✅
 
-See §8. Real container, **two** real findings from **two** oracles, real replay, plus a passing
-negative control. `metamorphic-response` has still only run against fixtures.
+See §8. Real container, **three** real findings from **all three** oracles, real replay, plus **two**
+passing negative controls. No oracle is now unproven against real software.
 
 ### LLM compiler — 🟡 boundary built, no provider
 
@@ -486,26 +487,26 @@ were verified through it: `install --frozen-lockfile`, `typecheck`, `test`, `bui
 ### Commands that work
 
 ```bash
-npx pnpm@10.19.0 test                              # the documented path; 257 tests
+npx pnpm@10.19.0 test                              # the documented path; 271 tests
 ./node_modules/.bin/vitest run                     # same suite from the root, ~1.1s
 (cd packages/<name> && ../../node_modules/.bin/tsc --noEmit)   # clean, all 8
 (cd packages/<name> && ../../node_modules/.bin/tsup src/index.ts --format esm --dts)
 node packages/trinker/dist/cli.js <command>        # `trinker` is not linked on PATH
 ```
 
-### Test status — ✅ 257/257 (17 files)
+### Test status — ✅ 271/271 (17 files)
 
 ```
 core            96   (architecture 15, safety 20, runner 20, bindings 17, coverage 10, events 8, schema 6)
-oracles         42   (state-mutation 21, differential-auth 12, metamorphic 9)
+oracles         46   (state-mutation 21, metamorphic 13, differential-auth 12)
 surface         34   (extract 26, discover 8)
-trinker         32   (scan-view 17, workflow 15)
+trinker         38   (workflow 21, scan-view 17)
 compiler        26
 vitest          18
-report           9
+report          13
 ```
 
-Grew from **9 → 257** across two sessions. `safety.ts` went from zero coverage to 20 tests.
+Grew from **9 → 271** across three sessions. `safety.ts` went from zero coverage to 20 tests.
 
 ### Typecheck / build — ✅ clean, all 8 packages
 
@@ -530,17 +531,31 @@ trinker verify TRK-0001   # exit 1 — reproduced
 Actual result against a freshly seeded container:
 
 ```
-checks: {"planned":3,"passed":1,"failed":2,"inconclusive":0,"errored":0,"unavailable":0}
+checks: {"planned":5,"passed":2,"failed":3,"inconclusive":0,"errored":0,"unavailable":0}
 TRK-0001  Differential Authorization  Broken Object Level Authorization
 TRK-0002  State Mutation              Unauthorized State Mutation
-JWT leaked: false
+TRK-0003  Metamorphic Response        Response Varies With a Parameter It Should Not Depend On
+coverage: planned 80.0%, verified 80.0%    JWT leaked: false
 ```
 
-Three checks, two oracles, both directions: `chk_basket_cross_customer` confirms the BOLA (another
-customer reads your basket, byte-identical), `chk_basket_item_cross_customer_write` confirms that
-another customer can change an item in your basket, and `chk_basket_requires_auth` **passes**
-(anonymous correctly refused with 401). The negative control matters — a scanner that only ever
-fires proves nothing.
+Five checks, three oracles, both directions:
+
+| check | oracle | endpoint | outcome |
+|---|---|---|---|
+| `chk_basket_cross_customer` | differential-authorization | `GET /rest/basket/:id` | **confirms** |
+| `chk_basket_item_cross_customer_write` | state-mutation | `PUT /api/BasketItems/:id` | **confirms** |
+| `chk_basket_items_scope_tampering` | metamorphic-response | `GET /api/BasketItems?BasketId=` | **confirms** |
+| `chk_basket_requires_auth` | differential-authorization | `GET /rest/basket/:id` anonymous | **passes** |
+| `chk_addresses_scope_tampering` | metamorphic-response | `GET /api/Addresss?UserId=` | **passes** |
+
+Two negative controls, one per oracle family. They matter as much as the findings: a scanner that
+only ever fires proves nothing about its ability to discriminate. Juice Shop genuinely scopes
+addresses by session while failing to scope basket items, and the same oracle reports each
+correctly.
+
+Replay: `TRK-0001` and `TRK-0003` are read-only and reproduce (exit 1). `TRK-0002` reports
+"could not be re-tested" and exits 3 on a second run, because that check writes and does not
+restore.
 
 > **Run against a fresh container.** The state-mutation check writes and does not restore. A second
 > run finds the value already set and reports **inconclusive** by design. CI seeds a new container
@@ -593,9 +608,15 @@ that CI installs with `--frozen-lockfile`). Most real specifications are YAML, s
 obvious follow-up.
 
 **I-7 · State-mutation is destructive and unrestored.** Inherent to testing whether a write is
-possible. The finding says so, and a re-run against already-mutated state is now reported
-`inconclusive` rather than `passed`. Still missing: a cleanup hook or dry-run mode. CI sidesteps it
-by seeding a fresh container each run.
+possible. The finding says so; a re-run against already-mutated state reports `inconclusive`, and
+`trinker verify` reports "could not be re-tested" and exits 3 rather than implying the flaw is
+gone. Still missing: a cleanup hook or dry-run mode. CI sidesteps it by seeding a fresh container.
+
+**I-16 · A route used only as a `readRequest` counts as uncovered.** The Juice Shop
+`GET /api/BasketItems/:id` route is exercised by the state-mutation check but is not the target of
+any check, so coverage reports it uncovered (80% rather than 100%). Accurate — coverage tracks
+checks, not incidental requests — but it reads oddly. Consider distinguishing "targeted" from
+"exercised".
 
 ### Low
 
@@ -809,7 +830,33 @@ Also fixed a real leak risk: `.gitignore` patterns were root-anchored, so a nest
 Proposal contract, deterministic validation/merge, token budget, and an architecture test that
 makes the zero-token guarantee structural.
 
-Suite: **9 → 230 tests**. Typecheck clean, all 8 packages build, 17 commits.
+Suite: **9 → 230 tests** at that point. Typecheck clean, all packages building.
+
+### Session 3 — the metamorphic milestone (commit `b0064dc`)
+
+`metamorphic-response` was the last oracle that had only ever run against fixtures. It now confirms
+a real Juice Shop flaw and passes a real negative control:
+
+- **Confirms** on `GET /api/BasketItems?BasketId=` — both variants sent as the *same* customer,
+  differing only in that parameter, return different baskets' items. One number enumerates any
+  customer's basket contents.
+- **Passes** on `GET /api/Addresss?UserId=` — Juice Shop scopes addresses by session and ignores
+  the parameter, so both variants come back byte-identical.
+
+`setup.sh` gained discovery of the second customer's basket and both user ids so the variants can
+point at data the caller genuinely must not see.
+
+Two defects surfaced while verifying the reporting surfaces, both fixed with regression tests:
+
+- **SARIF omitted inconclusive checks.** Only `errored`/`unavailable` became results, so an
+  inconclusive route looked clean in code scanning while Markdown listed it prominently — a direct
+  contradiction of §13.10. Every non-verdict is now a result: fault → `warning`, inconclusive →
+  `note`.
+- **`trinker verify` said "did NOT reproduce" for an inconclusive replay**, which reads as "the flaw
+  is gone". It now distinguishes reproduced / did-not-reproduce / could-not-be-re-tested and exits 3
+  for the last, because a replay asks a direct question and an inconclusive answer fails to answer it.
+
+Suite: **257 → 271 tests** (4 SARIF, 4 fixture-backed metamorphic variants, 6 replay verdicts).
 
 ### What was deliberately NOT done
 
@@ -822,11 +869,13 @@ Suite: **9 → 230 tests**. Typecheck clean, all 8 packages build, 17 commits.
 
 ### What the next session should do first
 
-**Point `metamorphic-response` at a real Juice Shop endpoint.** It is the only oracle that has
-never run against real software — `differential-authorization` and `state-mutation` both now
-confirm real flaws there. A list endpoint taking a filter or scoping parameter is the natural
-candidate. All P0 items are closed and CI is green, so every claim in this document is verified by
-observation rather than inspection.
+**Pick up P1-2 (real linting) or P1-3 (severity policy)** — both are small and unblock nothing
+else. The larger open question is P2-1, the first `CompilerProvider`: the gate it needs is built and
+tested, and every oracle now has a proven real-world reference to imitate, so an LLM-authored plan
+has something concrete to be judged against.
+
+All P0 items are closed, every oracle is proven against real software, and CI is green — so every
+claim in this document is verified by observation rather than inspection.
 
 **Do not start a provider implementation before P0-1 and P0-2.** The gate it needs is built and
 tested; what is missing is reach into real applications, not more LLM surface area.
