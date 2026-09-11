@@ -1,26 +1,42 @@
 import { describe, expect, it } from "vitest";
-import { PlanSchema, ScanEventBus, calculatePlanCoverage } from "../src/index.js";
+import { PlanSchema, RuntimeConfigSchema } from "../src/index.js";
+import { makePlan } from "./fixtures.js";
 
-const basePlan = {
-  schemaVersion: 1, planId: "trkp_example", surfaceDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  target: { applicationId: "app", allowedTargetRefs: ["local"] },
-  surface: { frameworks: ["express"], routes: [{ id: "route_get_orders_11111111", method: "GET", pathTemplate: "/orders/:id", parameters: [], sourceRefs: [], confidence: "high" }], resources: [] },
-  identities: [], fixtures: [], invariants: [], checks: [], coverage: { inScopeRouteIds: ["route_get_orders_11111111"], exclusions: [] }, safety: { mutationPolicy: "forbid", allowedMethods: ["GET"] }, provenance: { sources: [], compiler: { mode: "manual", compilerVersion: "0.1.0" } },
-};
+describe("plan schema", () => {
+  it("rejects unknown keys anywhere, so a typo cannot silently disable a check", () => {
+    const plan = { ...JSON.parse(JSON.stringify(makePlan())), unexpected: true };
+    expect(PlanSchema.safeParse(plan).success).toBe(false);
+  });
 
-describe("core plan contracts", () => {
-  it("calculates coverage from enabled deterministic checks", () => {
-    const plan = PlanSchema.parse(basePlan);
-    expect(calculatePlanCoverage(plan)).toMatchObject({ inScopeRoutes: 1, coveredRoutes: 0, percent: 0 });
+  it("requires a reason for every coverage exclusion", () => {
+    expect(() => makePlan({ coverage: { inScopeRouteIds: [], exclusions: [{ routeId: "route_x", reason: "" }] } })).toThrow();
   });
-  it("keeps event ordering owned by core", () => {
-    const bus = new ScanEventBus("scan_test", () => new Date("2026-09-11T00:00:00.000Z"));
-    expect(bus.emit("scan.started", {}).sequence).toBe(1);
-    expect(bus.emit("scan.completed", {}).sequence).toBe(2);
+
+  it("accepts every declared oracle variant, including ones with no implementation yet", () => {
+    for (const oracle of ["state-mutation", "metamorphic-response", "browser-execution", "out-of-band"]) {
+      const base = { id: `chk_${oracle.replace(/-/g, "_")}`, invariantId: "inv_owner_only", enabled: true, oracle, request: { routeId: "route_get_orders_11111111", pathBindings: {}, queryBindings: {}, headerBindings: {} } };
+      const extra = oracle === "state-mutation"
+        ? { readRequest: { routeId: "route_get_orders_11111111", pathBindings: {}, queryBindings: {}, headerBindings: {} }, protectedPaths: ["ownerId"] }
+        : oracle === "metamorphic-response"
+          ? { variants: [{ name: "a", queryBindings: {} }, { name: "b", queryBindings: {} }] }
+          : {};
+      expect(() => makePlan({ checks: [{ ...base, ...extra }] })).not.toThrow();
+    }
   });
-  it("rejects credential-like values in the committed plan", () => {
-    const unsafe = structuredClone(basePlan) as Record<string, unknown>;
-    unsafe.provenance = { sources: [], compiler: { mode: "manual", compilerVersion: "0.1.0" }, apiKey: "do-not-commit" };
-    expect(PlanSchema.safeParse(unsafe).success).toBe(false);
+});
+
+describe("runtime config schema", () => {
+  it("defaults to refusing mutation and to empty credential maps", () => {
+    const runtime = RuntimeConfigSchema.parse({ targets: { local: { url: "http://localhost:3000" } } });
+    expect(runtime).toMatchObject({ mutationAuthorized: false, identities: {}, fixtures: {}, values: {} });
+  });
+
+  it("requires a valid absolute target URL", () => {
+    expect(RuntimeConfigSchema.safeParse({ targets: { local: { url: "not-a-url" } } }).success).toBe(false);
+  });
+
+  it("accepts scalar runtime values and rejects structured ones", () => {
+    expect(RuntimeConfigSchema.safeParse({ targets: { local: { url: "http://localhost:3000" } }, values: { a: "x", b: 1, c: true } }).success).toBe(true);
+    expect(RuntimeConfigSchema.safeParse({ targets: { local: { url: "http://localhost:3000" } }, values: { a: { nested: true } } }).success).toBe(false);
   });
 });

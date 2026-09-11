@@ -40,7 +40,7 @@ export async function launchTui(projectDir: string): Promise<void> {
         const selectedFinding = await new Promise<number>((resolve) => input.once("keypress", (_value, keypress) => resolve(Number(keypress.sequence))));
         const finding = report.result.findings[selectedFinding - 1];
         if (!finding) output.write("Invalid finding selection.\n");
-        else { const verified = await verifyFinding(projectDir, finding.id); output.write(`${finding.id}: ${verified.result.findings.length > 0 ? "still confirmed" : "not reproduced"}\n`); }
+        else { const verified = await verifyFinding(projectDir, finding.id); output.write(`${finding.id}: ${verified.reproduced ? "still confirmed" : "not reproduced"}\n`); }
       }
     } else if (item === "Security Coverage") {
       const coverage = await coverageForProject(projectDir);

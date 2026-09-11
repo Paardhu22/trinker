@@ -41,6 +41,7 @@ export const ValueBindingSchema = z.union([
   z.object({ runtimeRef: z.string() }).strict(),
   z.object({ literal: z.union([z.string(), z.number(), z.boolean()]) }).strict(),
 ]);
+export type ValueBinding = z.infer<typeof ValueBindingSchema>;
 
 export const RequestTemplateSchema = z.object({
   routeId: z.string(),
@@ -49,6 +50,7 @@ export const RequestTemplateSchema = z.object({
   headerBindings: z.record(ValueBindingSchema).default({}),
   body: z.unknown().optional(),
 }).strict();
+export type RequestTemplate = z.infer<typeof RequestTemplateSchema>;
 
 export const InvariantSchema = z.object({
   id: z.string().regex(/^inv_[a-z0-9_]+$/),
@@ -161,7 +163,13 @@ function containsInlineSecret(value: unknown, key = ""): boolean {
 export const RuntimeConfigSchema = z.object({
   targets: z.record(z.object({ url: z.string().url(), allowHosts: z.array(z.string()).default([]) }).strict()),
   identities: z.record(z.object({ headers: z.record(z.string()).default({}) }).strict()).default({}),
+  /** Test data referenced by `fixtureRef`. Appears in finding evidence, because a finding about
+   *  object 42 is unreadable if 42 is masked. Do not put secrets here. */
   fixtures: z.record(z.record(z.unknown())).default({}),
+  /** Scalars referenced by `runtimeRef`. Treated as secret: masked wherever evidence is recorded.
+   *  This is the sanctioned way to keep a credential or deployment-specific value out of the
+   *  committed plan. */
+  values: z.record(z.union([z.string(), z.number(), z.boolean()])).default({}),
   mutationAuthorized: z.boolean().default(false),
 }).strict();
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;
