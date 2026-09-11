@@ -77,8 +77,16 @@ export const DifferentialAuthorizationCheckSchema = CheckBaseSchema.extend({
 
 export const StateMutationCheckSchema = CheckBaseSchema.extend({
   oracle: z.literal("state-mutation"),
+  /** Identity used to observe the protected state. Normally the legitimate owner. */
+  readIdentityId: z.string(),
+  /** Identities that must NOT be able to change the protected state. */
+  unauthorizedIdentityIds: z.array(z.string()).min(1),
+  /** How to read the state back. Must be a safe method; it runs before and after the mutation. */
   readRequest: RequestTemplateSchema,
-  protectedPaths: z.array(z.string()).min(1),
+  /** Dotted paths into the read response whose values must not change, e.g. "owner.id", "items.0.price". */
+  protectedPaths: z.array(z.string().min(1)).min(1),
+  /** Control reads used to prove the protected state is stable before attributing any change. */
+  calibration: z.object({ stabilityReads: z.number().int().min(1).max(5).default(1) }).strict().default({ stabilityReads: 1 }),
 }).strict();
 
 export const MetamorphicResponseCheckSchema = CheckBaseSchema.extend({
@@ -141,10 +149,16 @@ export const PlanSchema = z.object({
   for (const check of plan.checks) {
     if (!routeIds.has(check.request.routeId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["checks", check.id, "request", "routeId"], message: "Unknown route" });
     if (!invariantIds.has(check.invariantId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["checks", check.id, "invariantId"], message: "Unknown invariant" });
-    if (check.oracle === "differential-authorization") {
-      for (const identityId of [...check.allowedIdentityIds, ...check.deniedIdentityIds]) {
-        if (!identityIds.has(identityId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["checks", check.id], message: `Unknown identity: ${identityId}` });
-      }
+    const referencedIdentities = check.oracle === "differential-authorization"
+      ? [...check.allowedIdentityIds, ...check.deniedIdentityIds]
+      : check.oracle === "state-mutation"
+        ? [check.readIdentityId, ...check.unauthorizedIdentityIds]
+        : [];
+    for (const identityId of referencedIdentities) {
+      if (!identityIds.has(identityId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["checks", check.id], message: `Unknown identity: ${identityId}` });
+    }
+    if (check.oracle === "state-mutation" && !routeIds.has(check.readRequest.routeId)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["checks", check.id, "readRequest", "routeId"], message: "Unknown route" });
     }
   }
   if (containsInlineSecret(plan)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [], message: "Plans may not contain inline credential-like values; use runtime configuration references instead" });

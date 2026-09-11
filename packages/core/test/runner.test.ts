@@ -110,7 +110,7 @@ describe("runner: CI exit codes", () => {
       id: "chk_b", invariantId: "inv_owner_only", enabled: true, oracle: "state-mutation",
       request: { routeId: ROUTE_GET, pathBindings: {}, queryBindings: {}, headerBindings: {} },
       readRequest: { routeId: ROUTE_GET, pathBindings: {}, queryBindings: {}, headerBindings: {} },
-      protectedPaths: ["ownerId"],
+      protectedPaths: ["ownerId"], readIdentityId: "identity_owner", unauthorizedIdentityIds: ["identity_peer"],
     };
     const plan = makePlan({ checks: [authCheck({ id: "chk_a" }), unavailableCheck] });
     const result = await runPlan({ plan, runtime: makeRuntime(), oracles: [oracleReturning({ status: "failed", finding: draft() })], http: client(), scanId: "s" }).result;

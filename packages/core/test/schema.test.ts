@@ -16,7 +16,7 @@ describe("plan schema", () => {
     for (const oracle of ["state-mutation", "metamorphic-response", "browser-execution", "out-of-band"]) {
       const base = { id: `chk_${oracle.replace(/-/g, "_")}`, invariantId: "inv_owner_only", enabled: true, oracle, request: { routeId: "route_get_orders_11111111", pathBindings: {}, queryBindings: {}, headerBindings: {} } };
       const extra = oracle === "state-mutation"
-        ? { readRequest: { routeId: "route_get_orders_11111111", pathBindings: {}, queryBindings: {}, headerBindings: {} }, protectedPaths: ["ownerId"] }
+        ? { readRequest: { routeId: "route_get_orders_11111111", pathBindings: {}, queryBindings: {}, headerBindings: {} }, protectedPaths: ["ownerId"], readIdentityId: "identity_owner", unauthorizedIdentityIds: ["identity_peer"] }
         : oracle === "metamorphic-response"
           ? { variants: [{ name: "a", queryBindings: {} }, { name: "b", queryBindings: {} }] }
           : {};
