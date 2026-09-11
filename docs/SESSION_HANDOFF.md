@@ -1,14 +1,16 @@
 # Trinker — Session Handoff
 
-**Updated:** 2026-09-11 (session 3)
+**Updated:** 2026-09-11 (session 4)
 **Basis:** Written from the repository as it actually is. Every claim below was verified by running
 the code — the full suite, typecheck, build, CLI smoke tests, a pty-driven TUI session, and a live
 scan against a Docker Juice Shop container. Nothing here is claimed on the strength of a commit
 message.
 
-**State:** the deterministic foundation is hardened and covered. **All three implemented oracles
-now confirm real flaws against a live Juice Shop container**, each with a passing negative control,
-and CI enforces the whole thing. The LLM boundary is built but no provider ships.
+**State:** the deterministic foundation is hardened and covered. All three implemented oracles
+confirm real flaws against a live Juice Shop container, each with a passing negative control, and CI
+enforces the whole thing. **The first LLM compiler provider now ships** behind `compile --llm`;
+`trinker run` remains LLM-free and costs zero tokens. Real-provider execution is unverified — no
+credentials were available — but the SDK path is verified against a local stub.
 
 ---
 
@@ -62,7 +64,7 @@ dependency graph (§4, §13).
 
 ### Packages
 
-~3,500 lines of source, ~2,600 lines of test, 84 tracked files, 24 commits.
+~4,100 lines of source, ~3,100 lines of test, 88 tracked files, 27 commits.
 
 | Package | Name | src | test | Responsibility | Status |
 |---|---|---|---|---|---|
@@ -71,7 +73,7 @@ dependency graph (§4, §13).
 | `surface` | `@trinker/surface` | 475 | 242 | AST extraction, mount resolution, OpenAPI ingest + merge | **Active** |
 | `oracles` | `@trinker/oracles` | 414 | 468 | three deterministic oracles | **Active** |
 | `report` | `@trinker/report` | 167 | 105 | JSON / Markdown / SARIF | **Active** |
-| `compiler` | `@trinker/compiler` | 364 | 254 | LLM boundary: proposal contract, validation, budget | **Built, no provider** |
+| `compiler` | `@trinker/compiler` | 900 | 700 | LLM boundary: prompt, context, proposal contract, validation, budget, Claude provider | **Active (opt-in)** |
 | `vitest` | `@trinker/vitest` | 100 | 137 | assertions for running a scan in your own suite | **Active** |
 
 `@trinker/probes` was deleted: out-of-band testing needs a collector that does not exist, and the
@@ -335,26 +337,60 @@ See §6.
 See §8. Real container, **three** real findings from **all three** oracles, real replay, plus **two**
 passing negative controls. No oracle is now unproven against real software.
 
-### LLM compiler — 🟡 boundary built, no provider
+### LLM compiler — ✅ implemented, opt-in (real-provider run unverified)
 
-`@trinker/compiler` has the proposal contract, deterministic validation/merge, and a token budget.
-**No provider, no network client, and no CLI flag** — see §5.
+`trinker compile --llm` asks a model what should be tested, then validates every suggestion
+deterministically. Full detail in **[docs/LLM_COMPILER.md](LLM_COMPILER.md)**; the essentials:
+
+**Architecture.** `packages/compiler/src/` — `prompt.ts` (versioned system prompt +
+the JSON Schema the model fills in), `context.ts` (surface + narrow source excerpts),
+`providers/anthropic.ts` (the only file that talks to a model API, SDK loaded by dynamic import),
+`proposal.ts` (deterministic filter + merge), `compile.ts` (orchestration + telemetry).
+
+**Configuration.** `ANTHROPIC_API_KEY` for the key — never from or into a plan. `--model`
+(default `claude-opus-5`), `--token-budget` (default 60000), `ANTHROPIC_BASE_URL` or the provider's
+`baseUrl` for a gateway.
+
+**CLI.**
+```bash
+trinker compile --llm --token-budget 60000            # proposes; plan.json untouched
+trinker compile --llm --token-budget 60000 --apply    # merges it in
+```
+
+**Flow.** surface → prompt → structured `PlanProposal` → `applyProposal` (additive only, cannot
+widen safety, references must resolve, oracle must exist, `PlanSchema` re-validates and rejects
+credentials, provenance stamped `llm-assisted`) → proposal file + printed diff → `--apply`.
+
+**Token accounting.** Every compilation records provider, model, prompt version,
+input/output/total tokens, budget, and checks proposed/accepted/rejected — the instrumentation a
+later cost evaluation needs. The budget is checked before the call *and* against real usage after,
+so an under-estimating provider still trips it.
+
+**Safety boundaries.** The provider sees the surface only — never runtime config, credentials, or
+the target URL, asserted independently in `compileWithProvider`. A model may propose a check; only
+an oracle may confirm a finding. The API key is stripped from provider error messages. A proposed
+check cannot even run until a human wires its fixtures into `runtime.json`.
 
 ---
 
 ## 5. Deferred functionality
 
-### LLM provider — 🟡 contract exists, nothing ships
+### LLM provider — ✅ shipped, but never executed against the real API
 
-Built this session: `PlanProposalSchema` (structured plan content, never prose), `applyProposal`
-(deterministic filter + `PlanSchema` re-validation), `TokenBudget` (`assertFits` / `record`),
-`CompilerProvider` interface, `compileWithProvider` orchestration. 26 tests including adversarial
-proposals.
+Implemented this session. What is **not** verified: a real call to Anthropic. No credentials were
+available (`ANTHROPIC_API_KEY` unset, no `ant` CLI, no profile), and no successful real run is
+claimed.
 
-Absent: any provider implementation, prompt templates, a `trinker compile --llm` flag.
+Verified without credentials:
+- the whole pipeline with a fake provider — validation, merge, budget, telemetry
+- the **real `@anthropic-ai/sdk` client** against a local stub of the Messages API: real
+  serialisation, transport, retries, and error mapping, asserting the request carries the surface
+  and that the API key travels only in the header
+- the CLI flow end to end against that stub, including `--apply`
 
-> The CLI flag was **deliberately not added**. A flag that always answers "no provider configured"
-> is fake functionality. The library API is tested and ready; the flag lands with the provider.
+The open risk is whether Anthropic accepts the `output_config.format` JSON Schema as written. If it
+does not, the provider fails loudly with a `ProviderError` rather than producing a bad plan, and the
+fix is local to `prompt.ts`.
 
 ### Out-of-band callbacks — ❌
 
@@ -487,26 +523,26 @@ were verified through it: `install --frozen-lockfile`, `typecheck`, `test`, `bui
 ### Commands that work
 
 ```bash
-npx pnpm@10.19.0 test                              # the documented path; 271 tests
+npx pnpm@10.19.0 test                              # the documented path; 321 tests
 ./node_modules/.bin/vitest run                     # same suite from the root, ~1.1s
 (cd packages/<name> && ../../node_modules/.bin/tsc --noEmit)   # clean, all 8
 (cd packages/<name> && ../../node_modules/.bin/tsup src/index.ts --format esm --dts)
 node packages/trinker/dist/cli.js <command>        # `trinker` is not linked on PATH
 ```
 
-### Test status — ✅ 271/271 (17 files)
+### Test status — ✅ 321/321 (20 files)
 
 ```
-core            96   (architecture 15, safety 20, runner 20, bindings 17, coverage 10, events 8, schema 6)
+core            98   (architecture 17, safety 20, runner 20, bindings 17, coverage 10, events 8, schema 6)
 oracles         46   (state-mutation 21, metamorphic 13, differential-auth 12)
 surface         34   (extract 26, discover 8)
-trinker         38   (workflow 21, scan-view 17)
-compiler        26
+trinker         55   (workflow 21, llm-compile 17, scan-view 17)
+compiler        57   (proposal 26, anthropic provider 24, real-SDK integration 7)
 vitest          18
 report          13
 ```
 
-Grew from **9 → 271** across three sessions. `safety.ts` went from zero coverage to 20 tests.
+Grew from **9 → 321** across four sessions. `safety.ts` went from zero coverage to 20 tests.
 
 ### Typecheck / build — ✅ clean, all 8 packages
 
@@ -676,6 +712,10 @@ checks, not incidental requests — but it reads oddly. Consider distinguishing 
 | `packages/trinker/src/workflow.ts` | The only filesystem adapter. **Oracle registry lives here** (`ORACLES`). |
 | `packages/trinker/src/scan-view.ts` | Pure event→view reducer. Where TUI logic is testable. |
 | `packages/compiler/src/proposal.ts` | **The LLM gate.** Everything a model emits passes through `applyProposal`. |
+| `packages/compiler/src/prompt.ts` | Versioned compiler prompt + the JSON Schema asked of the model. Bump the version when either changes. |
+| `packages/compiler/src/context.ts` | What the model is allowed to see: surface plus narrow source excerpts, never runtime data. |
+| `packages/compiler/src/providers/anthropic.ts` | The only file that talks to a model API. |
+| `docs/LLM_COMPILER.md` | How to use and reason about `compile --llm`. |
 | `examples/juice-shop/` | The real integration target: plan, setup script, documented reproduction. |
 | `.github/workflows/ci.yml` | Enforces the suite and the end-to-end run. |
 
@@ -716,8 +756,8 @@ at all.
 
 ### P2 — later
 
-- **P2-1** First real `CompilerProvider` implementation, plus `trinker compile --llm` behind an
-  explicit flag and a required `--token-budget`. Everything it needs already exists and is tested.
+- **P2-1** ~~First real `CompilerProvider`~~ — DONE. Remaining: one real-API compilation to confirm
+  the request is accepted.
 - **P2-2** Crawler / HAR / proxy ingestion (`kind: "crawler"` is reserved).
 - **P2-3** OOB collector + `out-of-band` oracle.
 - **P2-4** `browser-execution` oracle.
@@ -858,6 +898,35 @@ Two defects surfaced while verifying the reporting surfaces, both fixed with reg
 
 Suite: **257 → 271 tests** (4 SARIF, 4 fixture-backed metamorphic variants, 6 replay verdicts).
 
+### Session 4 — the first LLM compiler provider (commits `f8c052b`, docs follow-up)
+
+`trinker compile --llm` now asks a model what should be tested. The model proposes; deterministic
+code decides. Detail in **[docs/LLM_COMPILER.md](LLM_COMPILER.md)**.
+
+- **Endpoint:** Claude Messages API via `@anthropic-ai/sdk`, default `claude-opus-5`, adaptive
+  thinking, `output_config.format` structured output, prompt cached on the stable system prefix.
+- **Prompt:** `packages/compiler/src/prompt.ts`, version `2026-09-11.1`, recorded on every
+  compilation.
+- **Non-destructive:** proposes by default, writes `plan.json` only with `--apply`.
+- **Telemetry:** provider, model, prompt version, input/output/total tokens, budget, and checks
+  proposed/accepted/rejected.
+
+Two design calls worth keeping:
+
+- The request JSON Schema is **hand-written**, not generated from Zod. The SDK's `zodOutputFormat`
+  helper requires Zod v4 and Trinker's security schemas are v3; migrating them to satisfy a prompt
+  detail would be the wrong trade. Zod stays the only validation authority, which is what makes the
+  wire schema a hint rather than a contract.
+- The CLI reaches `@trinker/compiler` by **dynamic import**, so `trinker run` never loads a model
+  client. An architecture test fails if a static import appears.
+
+**Real-provider status: UNVERIFIED.** No credentials in this environment; no successful real run is
+claimed. The real SDK is exercised end to end against a local stub of the Messages API, so
+serialisation, transport, retries, and error mapping are tested — only Anthropic's acceptance of the
+request is not.
+
+Suite: **271 → 321 tests**, none requiring an API key.
+
 ### What was deliberately NOT done
 
 - **No LLM provider and no `--llm` flag.** A flag answering "no provider configured" is fake
@@ -869,10 +938,16 @@ Suite: **257 → 271 tests** (4 SARIF, 4 fixture-backed metamorphic variants, 6 
 
 ### What the next session should do first
 
-**Pick up P1-2 (real linting) or P1-3 (severity policy)** — both are small and unblock nothing
-else. The larger open question is P2-1, the first `CompilerProvider`: the gate it needs is built and
-tested, and every oracle now has a proven real-world reference to imitate, so an LLM-authored plan
-has something concrete to be judged against.
+**Run one real compilation.** Set `ANTHROPIC_API_KEY` and run
+`trinker compile --llm --token-budget 60000` against `examples/juice-shop` or any Express app. That
+is the single unverified step in the whole system. Check three things: that the API accepts the
+`output_config.format` schema in `prompt.ts`; that the returned proposal survives
+`PlanProposalSchema`; and how many of the proposed checks a human would actually keep — the
+accepted/rejected counts in the telemetry record are the first real data point for the cost
+question.
+
+Everything else is verified by observation: all P0 and P1 items are closed, every oracle is proven
+against real software, and CI is green.
 
 All P0 items are closed, every oracle is proven against real software, and CI is green — so every
 claim in this document is verified by observation rather than inspection.
