@@ -2,6 +2,7 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
+      "@trinker/compiler": ["packages/compiler/src/index.ts"],
       "@trinker/core": ["packages/core/src/index.ts"],
       "@trinker/oracles": ["packages/oracles/src/index.ts"],
       "@trinker/report": ["packages/report/src/index.ts"],
