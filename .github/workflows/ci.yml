@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.19.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  juice-shop:
+    name: end-to-end against OWASP Juice Shop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.19.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Start Juice Shop
+        working-directory: examples/juice-shop
+        run: docker compose up -d
+
+      - name: Wait for it to seed
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://localhost:3000/; then
+              echo "ready after ${attempt}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Juice Shop did not become ready" >&2
+          exit 1
+
+      - name: Prepare identities and fixtures
+        working-directory: examples/juice-shop
+        run: ./setup.sh
+
+      - name: Scan
+        working-directory: examples/juice-shop
+        # Exit 1 is the expected result: Juice Shop is deliberately vulnerable and the plan
+        # confirms a real BOLA. Any other code means the scan itself misbehaved.
+        run: |
+          set +e
+          node ../../packages/trinker/dist/cli.js run --ci --format json > report.json
+          code=$?
+          set -e
+          echo "trinker exited ${code}"
+          if [ "${code}" -ne 1 ]; then
+            echo "Expected exit 1 (finding confirmed), got ${code}" >&2
+            cat report.json
+            exit 1
+          fi
+
+      - name: Assert the expected outcome
+        working-directory: examples/juice-shop
+        # The negative control must pass and the vulnerable check must confirm. A run where
+        # everything fires is as broken as a run where nothing does.
+        run: |
+          node -e '
+            const report = require("./report.json");
+            const { checks, findings } = report.result;
+            const fail = (message) => { console.error(message); process.exit(1); };
+
+            if (findings.length !== 1) fail(`expected exactly 1 finding, got ${findings.length}`);
+            if (findings[0].title !== "Broken Object Level Authorization") fail(`unexpected finding: ${findings[0].title}`);
+            if (findings[0].replay.command !== `trinker verify ${findings[0].id}`) fail("replay command does not match the finding id");
+            if (checks.passed !== 1) fail(`negative control did not pass: ${JSON.stringify(checks)}`);
+            if (checks.inconclusive || checks.errored || checks.unavailable) fail(`scan was incomplete: ${JSON.stringify(checks)}`);
+            if (JSON.stringify(report).includes("eyJ0eXAiOiJKV1Q")) fail("a JWT leaked into the report");
+
+            console.log("confirmed:", findings[0].id, findings[0].title);
+            console.log("negative control passed; no credentials in report");
+          '
+
+      - name: Replay the finding
+        working-directory: examples/juice-shop
+        run: |
+          set +e
+          node ../../packages/trinker/dist/cli.js verify TRK-0001 > verify.md
+          code=$?
+          set -e
+          if [ "${code}" -ne 1 ]; then
+            echo "Expected the finding to reproduce (exit 1), got ${code}" >&2
+            cat verify.md
+            exit 1
+          fi
+          echo "TRK-0001 reproduced"
+
+      - name: Stop Juice Shop
+        if: always()
+        working-directory: examples/juice-shop
+        run: docker compose down
