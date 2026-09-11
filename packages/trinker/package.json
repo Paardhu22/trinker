@@ -1,0 +1,20 @@
+{
+  "name": "trinker",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": { "trinker": "./dist/cli.js" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup src/index.ts src/cli.ts --format esm --dts",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@trinker/core": "workspace:*",
+    "@trinker/oracles": "workspace:*",
+    "@trinker/report": "workspace:*",
+    "@trinker/surface": "workspace:*"
+  }
+}
