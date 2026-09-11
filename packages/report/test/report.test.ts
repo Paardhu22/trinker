@@ -37,6 +37,7 @@ describe("trustSummary", () => {
     const summary = trustSummary(result({ checks: { planned: 2, passed: 1, failed: 0, inconclusive: 0, errored: 0, unavailable: 1 }, findings: [], outcomes: [unavailable] }));
     expect(summary).toMatch(/^INCOMPLETE/);
     expect(summary).toMatch(/had no available oracle/);
+    expect(summary).toMatch(/1 of 2 planned check produced/);
     expect(summary).toMatch(/does NOT mean these routes are secure/);
   });
 });

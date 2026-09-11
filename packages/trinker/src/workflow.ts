@@ -107,11 +107,23 @@ async function loadPlanIfPresent(projectDir: string): Promise<Plan | undefined> 
   return parsed.data;
 }
 
-export async function loadPlan(projectDir: string): Promise<Plan> {
-  return PlanSchema.parse(JSON.parse(await readFile(planPath(projectDir), "utf8")));
+/** Zod's raw issue dump is unreadable in a terminal; name the field and the problem instead. */
+function describeIssues(file: string, issues: readonly { path: (string | number)[]; message: string }[]): string {
+  const lines = issues.slice(0, 10).map((issue) => `  ${issue.path.join(".") || "(root)"}: ${issue.message}`);
+  const extra = issues.length > lines.length ? `\n  …and ${issues.length - lines.length} more` : "";
+  return `${file} is invalid:\n${lines.join("\n")}${extra}`;
 }
+
+export async function loadPlan(projectDir: string): Promise<Plan> {
+  const parsed = PlanSchema.safeParse(JSON.parse(await readFile(planPath(projectDir), "utf8")));
+  if (!parsed.success) throw new Error(describeIssues(".trinker/plan.json", parsed.error.issues));
+  return parsed.data;
+}
+
 export async function loadRuntime(projectDir: string): Promise<RuntimeConfig> {
-  return RuntimeConfigSchema.parse(JSON.parse(await readFile(runtimePath(projectDir), "utf8")));
+  const parsed = RuntimeConfigSchema.safeParse(JSON.parse(await readFile(runtimePath(projectDir), "utf8")));
+  if (!parsed.success) throw new Error(describeIssues(".trinker/runtime.json", parsed.error.issues));
+  return parsed.data;
 }
 
 export interface ScanOutput { result: ScanResult; report: SecurityReport; plan: Plan }

@@ -49,12 +49,14 @@ export function trustSummary(result: ScanResult): string {
       ? "COMPLETE - every planned check produced a verdict and no violation was confirmed."
       : `COMPLETE - every planned check produced a verdict; ${result.findings.length} violation(s) confirmed.`;
   }
+  const was = (count: number): string => (count === 1 ? "was" : "were");
   const parts = [
     unavailable > 0 ? `${unavailable} had no available oracle` : "",
     errored > 0 ? `${errored} errored` : "",
-    inconclusive > 0 ? `${inconclusive} were inconclusive` : "",
+    inconclusive > 0 ? `${inconclusive} ${was(inconclusive)} inconclusive` : "",
   ].filter(Boolean);
-  return `INCOMPLETE - ${untested} of ${result.checks.planned} planned check(s) produced no verdict (${parts.join(", ")}). Absence of findings does NOT mean these routes are secure.`;
+  const noun = untested === 1 ? "check" : "checks";
+  return `INCOMPLETE - ${untested} of ${result.checks.planned} planned ${noun} produced no verdict (${parts.join(", ")}). Absence of findings does NOT mean these routes are secure.`;
 }
 
 function toMarkdown(report: SecurityReport): string {
