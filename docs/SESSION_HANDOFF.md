@@ -1,6 +1,6 @@
 # Trinker — Session Handoff
 
-**Updated:** 2026-09-11 (session 5)
+**Updated:** 2026-09-11 (session 6)
 **Basis:** Written from the repository as it actually is. Every claim below was verified by running
 the code — the full suite, typecheck, build, CLI smoke tests, a pty-driven TUI session, and a live
 scan against a Docker Juice Shop container. Nothing here is claimed on the strength of a commit
@@ -8,9 +8,11 @@ message.
 
 **State:** the deterministic foundation is hardened and covered. All three implemented oracles
 confirm real flaws against a live Juice Shop container, each with a passing negative control, and CI
-enforces the whole thing. **Two LLM compiler providers now ship** behind `compile --llm` — OpenAI (default) and Anthropic;
-`trinker run` remains LLM-free and costs zero tokens. **Neither has been run against its real API:**
-no credentials were available in this environment. Both SDK paths are verified against local stubs.
+enforces the whole thing. **Two LLM compiler providers ship** behind `compile --llm` — OpenAI (default) and Anthropic;
+`trinker run` remains LLM-free and costs zero tokens. **OpenAI has now been run for real against
+Juice Shop**: the proposal passed deterministic validation, was applied after review, and one of its
+proposed checks confirmed a genuine BOLA the hand-written plan had missed. Anthropic remains
+unverified against its real API.
 
 ---
 
@@ -64,7 +66,7 @@ dependency graph (§4, §13).
 
 ### Packages
 
-~4,700 lines of source, ~3,800 lines of test, 92 tracked files, 30 commits.
+~4,800 lines of source, ~3,900 lines of test, 92 tracked files, 32 commits.
 
 | Package | Name | src | test | Responsibility | Status |
 |---|---|---|---|---|---|
@@ -391,36 +393,56 @@ check cannot even run until a human wires its fixtures into `runtime.json`.
 
 ## 5. Deferred functionality
 
-### LLM providers — ✅ shipped (OpenAI + Anthropic), neither executed against its real API
+### LLM providers — ✅ OpenAI verified against the real API; Anthropic still unverified
 
-**No real provider call has ever been made from this repository.**
+**OpenAI: real run succeeded (2026-09-11).** `gpt-5.6-terra`, against `examples/juice-shop` with a
+live container.
 
-Session 5 was asked to perform one real OpenAI compilation. `OPENAI_API_KEY` was **not present** in
-the execution environment — checked in the current shell, a login shell, an interactive shell, all
-shell profiles, `.env` files, `~/.config/openai`, `systemd --user`, and `/etc/environment`. The
-failure category is therefore **credential unavailable**, a precondition failure, not an API
-failure. No successful run is claimed.
-
-Verified without credentials:
-- the whole pipeline with a fake provider — validation, merge, budget, telemetry
-- the **real SDKs** (`openai` 7.15.0, `@anthropic-ai/sdk` 0.125.0) against local stubs of their
-  APIs: real serialisation, transport, retries, and error mapping
-- the CLI flow end to end against a stub **using the actual Juice Shop plan**, including `--apply`,
-  the non-destructive default, and the stale-surface fallback
-- a credential deliberately planted in `runtime.json` confirmed **absent** from the request payload
-
-Open risk: whether each vendor accepts its schema — for OpenAI, strict Structured Outputs against
-`openai-wire.ts`; for Anthropic, `output_config.format`. Both fail loudly with a `ProviderError`
-rather than producing a bad plan, and an HTTP 400 surfaces the upstream message, so a fix is local
-to the schema file.
-
-**To run it for real:**
-```bash
-export OPENAI_API_KEY=sk-proj-...
-cd examples/juice-shop && docker compose up -d && ./setup.sh
-trinker compile --llm --provider openai --token-budget 40000   # proposal only
 ```
-Then record the `record` block from `.trinker/proposal.json`.
+provider           openai:gpt-5.6-terra
+model              gpt-5.6-terra
+prompt version     2026-09-11.1+openai-wire.1
+input tokens       3680
+output tokens      812
+total tokens       4492   (budget 40000)
+checks proposed    2
+checks accepted    2
+checks rejected    0
+routes considered  5
+```
+
+Cost ≈ **$0.017** at $2/$12 per MTok.
+
+- Strict Structured Outputs **accepted the schema** in `openai-wire.ts` as written — the main open
+  risk from session 5 is closed.
+- The proposal **passed deterministic validation**: 0 rejected, every route/identity/fixture/oracle
+  reference resolved, purely additive, safety policy and surface untouched, no secrets anywhere in
+  the payload or the proposal file.
+- Both proposed checks targeted `GET /api/BasketItems/:id` — the one route the handoff had flagged
+  as having no check of its own (issue I-16). The model found that gap from the surface alone.
+
+**Scanning with the applied plan** (`trinker run`, zero runtime tokens):
+
+| check | source | outcome |
+|---|---|---|
+| `chk_basket_item_cross_customer_read` | **LLM** | **confirmed TRK-0002**, a real BOLA |
+| `chk_basket_item_requires_auth` | **LLM** | **passed** — anonymous correctly refused (401) |
+
+One proposed check found a genuine vulnerability the hand-written plan had missed; the other
+correctly stayed quiet. That is the discrimination the whole design depends on.
+
+**Anthropic: still unverified.** No `ANTHROPIC_API_KEY` available. Whether
+`output_config.format` is accepted as written remains untested; a rejection surfaces as a
+`ProviderError` with the upstream message rather than producing a bad plan.
+
+**Reproduce:**
+```bash
+export OPENAI_API_KEY=...
+cd examples/juice-shop && docker compose up -d && ./setup.sh
+trinker compile --llm --provider openai --token-budget 40000   # propose (1 API call)
+# review .trinker/proposal.json
+trinker compile --apply-proposal                                # apply (0 API calls)
+```
 
 ### Out-of-band callbacks — ❌
 
@@ -553,26 +575,26 @@ were verified through it: `install --frozen-lockfile`, `typecheck`, `test`, `bui
 ### Commands that work
 
 ```bash
-npx pnpm@10.19.0 test                              # the documented path; 370 tests
+npx pnpm@10.19.0 test                              # the documented path; 374 tests
 ./node_modules/.bin/vitest run                     # same suite from the root, ~1.1s
 (cd packages/<name> && ../../node_modules/.bin/tsc --noEmit)   # clean, all 8
 (cd packages/<name> && ../../node_modules/.bin/tsup src/index.ts --format esm --dts)
 node packages/trinker/dist/cli.js <command>        # `trinker` is not linked on PATH
 ```
 
-### Test status — ✅ 370/370 (23 files)
+### Test status — ✅ 374/374 (23 files)
 
 ```
 core            99   (architecture 18, safety 20, runner 20, bindings 17, coverage 10, events 8, schema 6)
 oracles         46   (state-mutation 21, metamorphic 13, differential-auth 12)
 surface         34   (extract 26, discover 8)
-trinker         57   (workflow 21, llm-compile 19, scan-view 17)
+trinker         61   (workflow 21, llm-compile 23, scan-view 17)
 compiler       106   (openai provider 32, proposal 26, anthropic provider 24, openai SDK 7, anthropic SDK 7, selection 7)
 vitest          18
 report          13
 ```
 
-Grew from **9 → 370** across five sessions. `safety.ts` went from zero coverage to 20 tests.
+Grew from **9 → 374** across six sessions. `safety.ts` went from zero coverage to 20 tests.
 
 ### Typecheck / build — ✅ clean, all 8 packages
 
@@ -786,8 +808,8 @@ at all.
 
 ### P2 — later
 
-- **P2-1** ~~First real `CompilerProvider`~~ — DONE for OpenAI and Anthropic. Remaining: one
-  real-API compilation with either, to confirm the request is accepted.
+- **P2-1** ~~First real `CompilerProvider`~~ — DONE, and verified end to end with OpenAI.
+  Remaining: one real Anthropic compilation, to confirm `output_config.format` is accepted.
 - **P2-2** Crawler / HAR / proxy ingestion (`kind: "crawler"` is reserved).
 - **P2-3** OOB collector + `out-of-band` oracle.
 - **P2-4** `browser-execution` oracle.
@@ -977,6 +999,28 @@ plan and reports `surfaceRefreshed: false`.
 LLM providers section for the full verification list and the exact command to run it.
 
 Suite: **321 → 370 tests**, none requiring an API key.
+
+### Session 6 — the real OpenAI run (commit `cc94c8c`)
+
+`compile --llm --provider openai` executed for real against a live Juice Shop container. Result,
+telemetry, and cost are in the LLM providers section above. Headline: strict Structured Outputs
+accepted the schema, deterministic validation accepted both proposed checks, and after review one
+of them confirmed **TRK-0002**, a real BOLA on `GET /api/BasketItems/:id` — the exact route the
+handoff had flagged as uncovered (I-16). 4,492 tokens, about $0.017.
+
+**Defect found and fixed — only a real, non-deterministic provider could have surfaced it.**
+`compile --llm --apply` re-ran the compiler and applied *that* proposal. The documented workflow was
+"propose, review, re-run with `--apply`", so the second run called the model again and applied
+something different from what was reviewed — observed directly: two checks, then one, then two.
+That silently defeats the review step the non-destructive default exists to provide.
+`trinker compile --apply-proposal` now writes the recorded proposal with no model call, refuses if
+the plan has moved on, and re-validates the file rather than trusting it.
+
+**Not done:** the LLM-discovered BOLA was *not* added to the committed
+`examples/juice-shop/plan.json`. Doing so would change the example's contract and the CI assertion
+(which requires exactly one finding per oracle) — a deliberate scope call, left for a decision.
+
+Suite: **370 → 374 tests**.
 
 ### What was deliberately NOT done
 

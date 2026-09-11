@@ -27,8 +27,8 @@ export OPENAI_API_KEY=sk-proj-...          # or ANTHROPIC_API_KEY for --provider
 # Propose. Writes .trinker/proposal.json and prints the diff. plan.json is NOT touched.
 trinker compile --llm --token-budget 60000
 
-# Review .trinker/proposal.json, then merge it in.
-trinker compile --llm --token-budget 60000 --apply
+# Review .trinker/proposal.json, then apply exactly what you reviewed — no second model call.
+trinker compile --apply-proposal
 ```
 
 | flag | meaning |
@@ -37,7 +37,13 @@ trinker compile --llm --token-budget 60000 --apply
 | `--provider <name>` | `openai` (default) or `anthropic`. |
 | `--token-budget <n>` | hard ceiling for one compilation. Default 60000. |
 | `--model <id>` | provider default if omitted. |
-| `--apply` | write the merged plan. Without it nothing is written to `plan.json`. |
+| `--apply` | propose **and** write in one call. No separate review step. |
+| `--apply-proposal` | write the proposal already recorded. Makes no model call. |
+
+> Use `--apply-proposal` for the review workflow. `--llm --apply` would call the model *again* and
+> apply that result — and a model is not deterministic, so it would not be the proposal you read.
+> `--apply-proposal` applies the recorded bytes, refuses if the plan has moved on since, and
+> re-validates the file rather than trusting it.
 
 `trinker run` has no `--llm` flag and never contacts a provider.
 
@@ -188,11 +194,25 @@ That is the normal path for the Juice Shop example and for any OpenAPI-derived p
 
 ## Real-provider status
 
-**Both providers are unverified against their real APIs.** No credentials were available in the
-environment where this was built — `OPENAI_API_KEY` was not present in the shell, a login shell, any
-profile, a `.env`, or systemd — so no real call was made and none is claimed.
+**OpenAI: verified (2026-09-11).** One real compilation against a live Juice Shop container with
+`gpt-5.6-terra`:
 
-What *is* verified, without credentials:
+```
+prompt version   2026-09-11.1+openai-wire.1
+tokens           3680 in + 812 out = 4492  (budget 40000)   ≈ $0.017
+checks           2 proposed, 2 accepted, 0 rejected, over 5 routes
+```
+
+Strict Structured Outputs accepted the schema as written. The proposal passed deterministic
+validation unchanged, was purely additive, and contained no secrets. After review and
+`--apply-proposal`, one of its checks confirmed a real BOLA on `GET /api/BasketItems/:id` that the
+hand-written plan had missed; the other passed as a negative control.
+
+**Anthropic: still unverified.** No credentials available; whether `output_config.format` is
+accepted as written remains untested. A rejection surfaces as a `ProviderError` with the upstream
+message rather than producing a bad plan.
+
+What is verified for both, without credentials:
 
 - the whole pipeline with a fake provider: validation, merge, budget, telemetry
 - the **real SDKs** (`openai` and `@anthropic-ai/sdk`) against local stubs of their APIs — real
@@ -202,21 +222,20 @@ What *is* verified, without credentials:
 - that a credential deliberately planted in `runtime.json` does **not** appear anywhere in the
   request payload
 
-What remains untested is each vendor's acceptance of the request — for OpenAI, whether strict
-Structured Outputs accepts the schema in `openai-wire.ts`; for Anthropic, whether
-`output_config.format` is accepted as written. Both fail loudly with a `ProviderError` if rejected,
-rather than producing a bad plan, and an HTTP 400 is reported with the upstream message so the fix
-is local to the schema.
-
 ### Running it for real
 
 ```bash
 export OPENAI_API_KEY=sk-proj-...
 cd examples/juice-shop
 docker compose up -d && ./setup.sh          # or any project with a compiled plan
-trinker compile --llm --provider openai --token-budget 40000
-# review .trinker/proposal.json, then re-run with --apply
+trinker compile --llm --provider openai --token-budget 40000   # propose (1 API call)
+# review .trinker/proposal.json
+trinker compile --apply-proposal                                # apply (0 API calls)
 ```
 
-Record the `record` block from `.trinker/proposal.json`: it carries provider, model, prompt
-version, token counts, budget, and checks proposed/accepted/rejected.
+The `record` block in `.trinker/proposal.json` carries provider, model, prompt version, token
+counts, budget, and checks proposed/accepted/rejected.
+
+Expect some variation between runs: the same prompt against the same surface produced two checks,
+then one, then two across three observed runs. That is why applying goes through the recorded
+proposal rather than a fresh call.
