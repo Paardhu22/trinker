@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "planId": "trkp_juiceshop_basket_v2",
+  "planId": "trkp_juiceshop_basket_v3",
   "surfaceDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
   "target": {
     "applicationId": "owasp-juice-shop",
@@ -72,6 +72,34 @@
           }
         ],
         "confidence": "high"
+      },
+      {
+        "id": "route_get_api_basketitems_juiceshop",
+        "method": "GET",
+        "pathTemplate": "/api/BasketItems",
+        "parameters": [],
+        "sourceRefs": [
+          {
+            "kind": "manual",
+            "path": "examples/juice-shop/README.md",
+            "note": "Hand-declared. Juice Shop serves a bundled API that the source extractor cannot reach."
+          }
+        ],
+        "confidence": "high"
+      },
+      {
+        "id": "route_get_api_addresses_juiceshop",
+        "method": "GET",
+        "pathTemplate": "/api/Addresss",
+        "parameters": [],
+        "sourceRefs": [
+          {
+            "kind": "manual",
+            "path": "examples/juice-shop/README.md",
+            "note": "Hand-declared. Juice Shop serves a bundled API that the source extractor cannot reach."
+          }
+        ],
+        "confidence": "high"
       }
     ],
     "resources": [
@@ -133,6 +161,19 @@
       "runtimeRef": "ownedBasketItem",
       "resourceId": "resource_basket_item",
       "ownerIdentityId": "identity_basket_owner"
+    },
+    {
+      "id": "fixture_other_basket",
+      "runtimeRef": "otherBasket",
+      "resourceId": "resource_basket"
+    },
+    {
+      "id": "fixture_owner_user",
+      "runtimeRef": "ownerUser"
+    },
+    {
+      "id": "fixture_other_user",
+      "runtimeRef": "otherUser"
     }
   ],
   "invariants": [
@@ -164,6 +205,25 @@
         "route_put_api_basketitems_id_juiceshop"
       ],
       "resourceId": "resource_basket_item",
+      "provenance": "manual"
+    },
+    {
+      "id": "inv_basket_items_scoped_by_session",
+      "kind": "metamorphic-response",
+      "statement": "The basket items returned must be decided by the caller's session, not by a caller-supplied BasketId.",
+      "routeIds": [
+        "route_get_api_basketitems_juiceshop"
+      ],
+      "resourceId": "resource_basket_item",
+      "provenance": "manual"
+    },
+    {
+      "id": "inv_addresses_scoped_by_session",
+      "kind": "metamorphic-response",
+      "statement": "The address list returned must be decided by the caller's session, not by a caller-supplied UserId.",
+      "routeIds": [
+        "route_get_api_addresses_juiceshop"
+      ],
       "provenance": "manual"
     }
   ],
@@ -260,13 +320,89 @@
       "calibration": {
         "stabilityReads": 2
       }
+    },
+    {
+      "id": "chk_basket_items_scope_tampering",
+      "invariantId": "inv_basket_items_scoped_by_session",
+      "enabled": true,
+      "oracle": "metamorphic-response",
+      "request": {
+        "routeId": "route_get_api_basketitems_juiceshop",
+        "pathBindings": {},
+        "queryBindings": {},
+        "headerBindings": {}
+      },
+      "identityId": "identity_basket_owner",
+      "relation": "identical",
+      "variants": [
+        {
+          "name": "own-basket",
+          "queryBindings": {
+            "BasketId": {
+              "fixtureRef": "fixture_owned_basket",
+              "field": "id"
+            }
+          }
+        },
+        {
+          "name": "other-customers-basket",
+          "queryBindings": {
+            "BasketId": {
+              "fixtureRef": "fixture_other_basket",
+              "field": "id"
+            }
+          }
+        }
+      ],
+      "calibration": {
+        "stabilityReads": 2
+      }
+    },
+    {
+      "id": "chk_addresses_scope_tampering",
+      "invariantId": "inv_addresses_scoped_by_session",
+      "enabled": true,
+      "oracle": "metamorphic-response",
+      "request": {
+        "routeId": "route_get_api_addresses_juiceshop",
+        "pathBindings": {},
+        "queryBindings": {},
+        "headerBindings": {}
+      },
+      "identityId": "identity_basket_owner",
+      "relation": "identical",
+      "variants": [
+        {
+          "name": "own-user",
+          "queryBindings": {
+            "UserId": {
+              "fixtureRef": "fixture_owner_user",
+              "field": "id"
+            }
+          }
+        },
+        {
+          "name": "other-user",
+          "queryBindings": {
+            "UserId": {
+              "fixtureRef": "fixture_other_user",
+              "field": "id"
+            }
+          }
+        }
+      ],
+      "calibration": {
+        "stabilityReads": 2
+      }
     }
   ],
   "coverage": {
     "inScopeRouteIds": [
       "route_get_rest_basket_id_juiceshop",
       "route_get_api_basketitems_id_juiceshop",
-      "route_put_api_basketitems_id_juiceshop"
+      "route_put_api_basketitems_id_juiceshop",
+      "route_get_api_basketitems_juiceshop",
+      "route_get_api_addresses_juiceshop"
     ],
     "exclusions": []
   },

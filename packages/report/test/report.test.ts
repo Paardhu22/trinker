@@ -103,3 +103,63 @@ describe("createReport", () => {
     expect(built.coverage.verifiedRoutes).toBe(1);
   });
 });
+
+describe("SARIF surfaces every check that produced no verdict", () => {
+  const sarifOf = (scan: ScanResult) => JSON.parse(renderReport(report(scan), "sarif"));
+
+  const inconclusive: CheckOutcome = {
+    checkId: "chk_maybe", routeId: "route_maybe", oracle: "state-mutation", status: "inconclusive",
+    reason: "A 2xx with no state change cannot distinguish a rejection from a no-op.",
+  };
+  const errored: CheckOutcome = {
+    checkId: "chk_boom", routeId: "route_boom", oracle: "differential-authorization", status: "errored",
+    reason: "connection refused",
+  };
+
+  it("reports an inconclusive check, which is otherwise invisible to a dashboard", () => {
+    // Regression: only errored and unavailable were emitted, so an inconclusive route appeared
+    // clean in code scanning even though nothing was tested on it.
+    const sarif = sarifOf(result({
+      checks: { planned: 2, passed: 1, failed: 0, inconclusive: 1, errored: 0, unavailable: 0 },
+      findings: [], outcomes: [inconclusive],
+    }));
+    const untested = sarif.runs[0].results.filter((r: { ruleId: string }) => r.ruleId === "TRK-UNTESTED");
+    expect(untested).toHaveLength(1);
+    expect(untested[0].properties.checkId).toBe("chk_maybe");
+    expect(untested[0].message.text).toContain("inconclusive");
+  });
+
+  it("distinguishes a fault (warning) from an inconclusive check (note)", () => {
+    const sarif = sarifOf(result({
+      checks: { planned: 3, passed: 1, failed: 0, inconclusive: 1, errored: 1, unavailable: 0 },
+      findings: [], outcomes: [inconclusive, errored],
+    }));
+    const levels = Object.fromEntries(
+      sarif.runs[0].results
+        .filter((r: { ruleId: string }) => r.ruleId === "TRK-UNTESTED")
+        .map((r: { level: string; properties: { status: string } }) => [r.properties.status, r.level]),
+    );
+    expect(levels).toEqual({ inconclusive: "note", errored: "warning" });
+  });
+
+  it("marks execution unsuccessful only for a fault, not for an inconclusive check", () => {
+    const onlyInconclusive = sarifOf(result({
+      checks: { planned: 1, passed: 0, failed: 0, inconclusive: 1, errored: 0, unavailable: 0 },
+      findings: [], outcomes: [inconclusive],
+    }));
+    expect(onlyInconclusive.runs[0].invocations[0].executionSuccessful).toBe(true);
+    expect(onlyInconclusive.runs[0].invocations[0].exitSignalName).toBe("incomplete");
+
+    const withFault = sarifOf(result({
+      checks: { planned: 1, passed: 0, failed: 0, inconclusive: 0, errored: 1, unavailable: 0 },
+      findings: [], outcomes: [errored],
+    }));
+    expect(withFault.runs[0].invocations[0].executionSuccessful).toBe(false);
+  });
+
+  it("emits no untested rule at all when every check reached a verdict", () => {
+    const sarif = sarifOf(result());
+    expect(sarif.runs[0].tool.driver.rules.map((r: { id: string }) => r.id)).not.toContain("TRK-UNTESTED");
+    expect(sarif.runs[0].results.every((r: { ruleId: string }) => r.ruleId !== "TRK-UNTESTED")).toBe(true);
+  });
+});

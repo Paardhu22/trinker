@@ -53,34 +53,40 @@ say "Logging in as $OTHER_EMAIL …"
 OTHER_TOKEN=$(login "$OTHER_EMAIL" "$OTHER_PASSWORD")
 
 OWNER_ID=$(user_id_of "$OWNER_TOKEN")
-say "Owner is user $OWNER_ID."
+OTHER_ID=$(user_id_of "$OTHER_TOKEN")
+say "Owner is user $OWNER_ID; the other customer is user $OTHER_ID."
 
-# Find the basket whose UserId is the owner's. Reading someone else's basket is the very flaw under
-# test, so picking "the first basket that returns 200" would make the owner a non-owner too.
-BASKET_ID=""
-for candidate in $(seq 1 8); do
-  body=$(curl -fsS -m 10 -H "authorization: Bearer $OWNER_TOKEN" "$BASE/rest/basket/$candidate" 2>/dev/null) || continue
-  owner_of=$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin)["data"].get("UserId",""))' 2>/dev/null) || continue
-  if [ "$owner_of" = "$OWNER_ID" ]; then
-    BASKET_ID="$candidate"
-    # A basket item inside the owner's own basket, for the state-mutation check.
-    BASKET_ITEM_ID=$(printf '%s' "$body" | python3 -c '
+# Find each customer's own basket. Reading someone else's basket is the very flaw under test, so
+# picking "the first basket that returns 200" would make the owner a non-owner too.
+basket_of() {
+  local wanted="$1" candidate body owner_of
+  for candidate in $(seq 1 8); do
+    body=$(curl -fsS -m 10 -H "authorization: Bearer $OWNER_TOKEN" "$BASE/rest/basket/$candidate" 2>/dev/null) || continue
+    owner_of=$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin)["data"].get("UserId",""))' 2>/dev/null) || continue
+    if [ "$owner_of" = "$wanted" ]; then printf '%s' "$candidate"; return 0; fi
+  done
+  return 1
+}
+
+BASKET_ID=$(basket_of "$OWNER_ID") || die "Could not find a basket owned by user $OWNER_ID. Is this a freshly seeded Juice Shop?"
+# A second customer's basket, so a metamorphic variant can point at data the owner must not see.
+OTHER_BASKET_ID=$(basket_of "$OTHER_ID") || die "Could not find a basket owned by user $OTHER_ID."
+
+# A basket item inside the owner's own basket, for the state-mutation check.
+BASKET_ITEM_ID=$(curl -fsS -m 10 -H "authorization: Bearer $OWNER_TOKEN" "$BASE/rest/basket/$BASKET_ID" | python3 -c '
 import json, sys
 products = json.load(sys.stdin)["data"].get("Products", [])
 items = [p["BasketItem"]["id"] for p in products if p.get("BasketItem")]
 print(items[0] if items else "")')
-    break
-  fi
-done
-[ -n "$BASKET_ID" ] || die "Could not find a basket owned by user $OWNER_ID. Is this a freshly seeded Juice Shop?"
-[ -n "${BASKET_ITEM_ID:-}" ] || die "Basket $BASKET_ID has no items, so the state-mutation check has nothing to observe."
-say "Owner's basket is $BASKET_ID, containing basket item $BASKET_ITEM_ID."
+[ -n "$BASKET_ITEM_ID" ] || die "Basket $BASKET_ID has no items, so the state-mutation check has nothing to observe."
+say "Owner's basket is $BASKET_ID (item $BASKET_ITEM_ID); the other customer's basket is $OTHER_BASKET_ID."
 
 mkdir -p "$TRINKER_DIR"
 cp "$HERE/plan.json" "$TRINKER_DIR/plan.json"
 
 OWNER_TOKEN="$OWNER_TOKEN" OTHER_TOKEN="$OTHER_TOKEN" BASKET_ID="$BASKET_ID" \
-BASKET_ITEM_ID="$BASKET_ITEM_ID" BASE="$BASE" \
+BASKET_ITEM_ID="$BASKET_ITEM_ID" OTHER_BASKET_ID="$OTHER_BASKET_ID" \
+OWNER_ID="$OWNER_ID" OTHER_ID="$OTHER_ID" BASE="$BASE" \
 python3 - "$TRINKER_DIR/runtime.json" <<'PY'
 import json, os, sys
 runtime = {
@@ -94,6 +100,10 @@ runtime = {
     "fixtures": {
         "ownedBasket": {"id": os.environ["BASKET_ID"]},
         "ownedBasketItem": {"id": os.environ["BASKET_ITEM_ID"]},
+        # A basket and a user the owner must not be able to scope a response to.
+        "otherBasket": {"id": os.environ["OTHER_BASKET_ID"]},
+        "ownerUser": {"id": os.environ["OWNER_ID"]},
+        "otherUser": {"id": os.environ["OTHER_ID"]},
     },
     "values": {},
     # The state-mutation check writes to the target. Both this and the plan's mutationPolicy must

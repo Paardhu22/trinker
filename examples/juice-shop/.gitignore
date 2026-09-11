@@ -3,4 +3,4 @@
 # gitignored runtime config and reports.
 .trinker/
 report.json
-verify.md
+verify*.md

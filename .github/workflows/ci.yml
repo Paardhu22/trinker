@@ -86,7 +86,7 @@ jobs:
 
       - name: Assert the expected outcome
         working-directory: examples/juice-shop
-        # Two oracles must each confirm their own real flaw, and the negative control must pass.
+        # All three oracles must each confirm their own real flaw, and both negative controls pass.
         # The container is freshly seeded every run, which is what makes the state-mutation check
         # deterministic: re-running it against already-mutated state is inconclusive by design.
         run: |
@@ -95,37 +95,45 @@ jobs:
             const { checks, findings } = report.result;
             const fail = (message) => { console.error(message); process.exit(1); };
 
-            const titles = findings.map((f) => f.title).sort();
-            const expected = ["Broken Object Level Authorization", "Unauthorized State Mutation"];
-            if (JSON.stringify(titles) !== JSON.stringify(expected)) {
-              fail(`expected exactly ${JSON.stringify(expected)}, got ${JSON.stringify(titles)}`);
+            // Each of the three oracles must confirm its own real flaw.
+            const oracles = findings.map((f) => f.oracle).sort();
+            const expected = ["Differential Authorization", "Metamorphic Response", "State Mutation"];
+            if (JSON.stringify(oracles) !== JSON.stringify(expected)) {
+              fail(`expected one finding per oracle ${JSON.stringify(expected)}, got ${JSON.stringify(oracles)}`);
             }
             for (const finding of findings) {
               if (finding.replay.command !== `trinker verify ${finding.id}`) fail(`replay command does not match ${finding.id}`);
             }
-            // The negative control must pass. A run where everything fires is as broken as one
-            // where nothing does, and only the combination shows the oracles discriminate.
-            if (checks.passed !== 1) fail(`negative control did not pass: ${JSON.stringify(checks)}`);
+            // Two negative controls must pass: an anonymous request refused, and an endpoint that
+            // correctly ignores a caller-supplied scoping parameter. A run where everything fires
+            // is as broken as one where nothing does; only the combination shows the oracles
+            // actually discriminate.
+            if (checks.passed !== 2) fail(`negative controls did not both pass: ${JSON.stringify(checks)}`);
             if (checks.inconclusive || checks.errored || checks.unavailable) fail(`scan was incomplete: ${JSON.stringify(checks)}`);
             if (JSON.stringify(report).includes("eyJ0eXAiOiJKV1Q")) fail("a JWT leaked into the report");
 
             for (const finding of findings) console.log("confirmed:", finding.id, "-", finding.oracle, "-", finding.title);
-            console.log("negative control passed; no credentials in report");
+            console.log("both negative controls passed; no credentials in report");
           '
 
-      - name: Replay the finding
+      - name: Replay the read-only findings
         working-directory: examples/juice-shop
+        # TRK-0002 is the state-mutation finding and is deliberately not replayed: that check writes
+        # and does not restore, so re-running it against already-changed state is untestable by
+        # design and exits 3. The two read-only findings must reproduce exactly.
         run: |
-          set +e
-          node ../../packages/trinker/dist/cli.js verify TRK-0001 > verify.md
-          code=$?
-          set -e
-          if [ "${code}" -ne 1 ]; then
-            echo "Expected the finding to reproduce (exit 1), got ${code}" >&2
-            cat verify.md
-            exit 1
-          fi
-          echo "TRK-0001 reproduced"
+          for id in TRK-0001 TRK-0003; do
+            set +e
+            node ../../packages/trinker/dist/cli.js verify "$id" > "verify-$id.md"
+            code=$?
+            set -e
+            if [ "${code}" -ne 1 ]; then
+              echo "Expected ${id} to reproduce (exit 1), got ${code}" >&2
+              tail -5 "verify-$id.md"
+              exit 1
+            fi
+            echo "${id} reproduced"
+          done
 
       - name: Stop Juice Shop
         if: always()

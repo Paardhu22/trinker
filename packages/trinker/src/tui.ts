@@ -259,10 +259,11 @@ async function findingsView(projectDir: string): Promise<void> {
       clear();
       write(`Replaying ${finding.id}…`);
       try {
-        const { reproduced } = await verifyFinding(projectDir, finding.id);
-        write(reproduced ? red(`${finding.id} still reproduces.`) : green(`${finding.id} did not reproduce.`));
-        if (!reproduced && finding.oracle === "State Mutation") {
-          write(dim("A state-mutation finding may not reproduce because the first scan already changed the state."));
+        const { verdict, summary } = await verifyFinding(projectDir, finding.id);
+        const colour = verdict === "reproduced" ? red : verdict === "not-reproduced" ? green : yellow;
+        write(colour(summary));
+        if (verdict === "untestable" && finding.oracle === "State Mutation") {
+          write(dim("A state-mutation check writes and does not restore; re-running it against already-changed state cannot reach a verdict."));
         }
       } catch (error) {
         write(red(`Verify failed: ${error instanceof Error ? error.message : "Unknown error"}`));

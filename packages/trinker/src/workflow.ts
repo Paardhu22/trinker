@@ -176,6 +176,23 @@ export async function loadRuntime(projectDir: string): Promise<RuntimeConfig> {
 
 export interface ScanOutput { result: ScanResult; report: SecurityReport; plan: Plan }
 
+/**
+ * What a replay actually established.
+ *
+ * "did not reproduce" is only true when the check passed. A replay that could not reach a verdict —
+ * a state-mutation check re-run against state an earlier scan already changed, say — must not be
+ * reported as though the flaw were gone.
+ */
+export type ReplayVerdict = "reproduced" | "not-reproduced" | "untestable";
+
+export function describeReplay(findingId: string, result: ScanResult): { verdict: ReplayVerdict; summary: string } {
+  if (result.findings.length > 0) return { verdict: "reproduced", summary: `${findingId} reproduced.` };
+  const outcome = result.outcomes[0];
+  if (outcome === undefined) return { verdict: "untestable", summary: `${findingId} could not be re-tested: the check did not run.` };
+  if (outcome.status === "passed") return { verdict: "not-reproduced", summary: `${findingId} did NOT reproduce - the check now passes.` };
+  return { verdict: "untestable", summary: `${findingId} could not be re-tested (${outcome.status}): ${outcome.reason}` };
+}
+
 export async function runProject(projectDir: string, onEvent?: (event: ScanEvent) => void): Promise<ScanOutput> {
   const plan = await loadPlan(projectDir);
   const runtime = await loadRuntime(projectDir);
@@ -195,7 +212,7 @@ export async function runProject(projectDir: string, onEvent?: (event: ScanEvent
  * with the original identifier: it is the same finding, and a report that renamed it would break
  * the link back to the original scan.
  */
-export async function verifyFinding(projectDir: string, findingId: string, onEvent?: (event: ScanEvent) => void): Promise<ScanOutput & { reproduced: boolean }> {
+export async function verifyFinding(projectDir: string, findingId: string, onEvent?: (event: ScanEvent) => void): Promise<ScanOutput & { reproduced: boolean; verdict: ReplayVerdict; summary: string }> {
   const latest = await loadLatestReport(projectDir);
   const original = latest.result.findings.find((candidate) => candidate.id === findingId);
   if (!original) throw new Error(`Finding ${findingId} is not present in the latest report. Run \`trinker report\` to list findings.`);
@@ -212,7 +229,8 @@ export async function verifyFinding(projectDir: string, findingId: string, onEve
     ...raw, findings,
     outcomes: raw.outcomes.map((outcome) => (outcome.findingId ? { ...outcome, findingId: original.id } : outcome)),
   };
-  return { result, report: createReport(narrowed, result), plan: narrowed, reproduced: findings.length > 0 };
+  const replay = describeReplay(original.id, result);
+  return { result, report: createReport(narrowed, result), plan: narrowed, reproduced: findings.length > 0, ...replay };
 }
 
 export async function loadLatestReport(projectDir: string): Promise<SecurityReport> {

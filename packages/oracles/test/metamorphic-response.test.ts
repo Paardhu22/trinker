@@ -110,6 +110,61 @@ describe("metamorphic response: determinism calibration prevents false positives
   });
 });
 
+describe("metamorphic response: fixture-backed variants", () => {
+  // The Juice Shop plan scopes its variants with fixtureRef bindings rather than literals, so the
+  // resolution path through runtime fixtures needs its own coverage.
+  const fixturePlan = (): Plan => {
+    const base = plan({
+      variants: [
+        { name: "own-basket", queryBindings: { BasketId: { fixtureRef: "fixture_own", field: "id" } } },
+        { name: "other-basket", queryBindings: { BasketId: { fixtureRef: "fixture_other", field: "id" } } },
+      ],
+    });
+    return {
+      ...base,
+      fixtures: [{ id: "fixture_own", runtimeRef: "own" }, { id: "fixture_other", runtimeRef: "other" }],
+    };
+  };
+  const fixtureRuntime: RuntimeConfig = { ...runtime, fixtures: { own: { id: "2" }, other: { id: "3" } } };
+
+  const runFixtureScan = (http: HttpClient) =>
+    runPlan({ plan: fixturePlan(), runtime: fixtureRuntime, oracles: [metamorphicResponseOracle], http, scanId: "s" }).result;
+
+  it("resolves fixture values into each variant's query string", async () => {
+    const { client: http, seen } = client(() => ({ body: "{}" }));
+    await runFixtureScan(http);
+    const scopes = seen.map((request) => new URL(request.url).searchParams.get("BasketId"));
+    expect(scopes.slice(0, 2)).toEqual(["2", "2"]); // reference + stability control
+    expect(scopes.at(-1)).toBe("3");
+  });
+
+  it("confirms when the fixture-scoped variant returns different data", async () => {
+    const http: HttpClient = {
+      request: async (request) => {
+        const basket = new URL(request.url).searchParams.get("BasketId");
+        return { status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify([{ BasketId: basket }]), elapsedMs: 1 };
+      },
+    };
+    const result = await runFixtureScan(http);
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]?.verdict).toMatch(/Variant "other-basket" produced a different response/);
+  });
+
+  it("passes when the endpoint ignores the fixture-scoped parameter", async () => {
+    const http: HttpClient = { request: async () => ({ status: 200, headers: {}, body: '[{"owned":true}]', elapsedMs: 1 }) };
+    const result = await runFixtureScan(http);
+    expect(result.findings).toHaveLength(0);
+    expect(result.checks.passed).toBe(1);
+  });
+
+  it("errors loudly when a variant references a fixture the runtime does not define", async () => {
+    const { client: http } = client(() => ({ body: "{}" }));
+    const result = await runPlan({ plan: fixturePlan(), runtime, oracles: [metamorphicResponseOracle], http, scanId: "s" }).result;
+    expect(result.checks.errored).toBe(1);
+    expect(result.outcomes[0]?.reason).toMatch(/"own" is not defined/);
+  });
+});
+
 describe("metamorphic response: request construction", () => {
   it("sends every variant as the same identity, differing only in query parameters", async () => {
     const { client: http, seen } = client(() => ({ body: "{}" }));

@@ -2,7 +2,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { compileProject, loadPlan } from "../src/workflow.js";
+import type { ScanResult } from "@trinker/core";
+import { compileProject, describeReplay, loadPlan } from "../src/workflow.js";
 
 const projects: string[] = [];
 const newProject = async (): Promise<string> => {
@@ -193,5 +194,46 @@ describe("OpenAPI ingestion", () => {
     expect(merged).toBe(true);
     expect(plan.checks.map((check) => check.id)).toEqual(["chk_auth"]);
     expect(plan.surface.routes.length).toBeGreaterThan(1);
+  });
+});
+
+describe("describeReplay", () => {
+  const base = (overrides: Partial<ScanResult> = {}): ScanResult => ({
+    scanId: "s", planId: "p", startedAt: "", completedAt: "", durationMs: 1,
+    checks: { planned: 1, passed: 0, failed: 0, inconclusive: 0, errored: 0, unavailable: 0 },
+    outcomes: [], findings: [],
+    tokens: { compileInput: 0, compileOutput: 0, runtimeInput: 0, runtimeOutput: 0, calls: 0 },
+    ...overrides,
+  });
+  const outcome = (status: ScanResult["outcomes"][number]["status"], reason = "because") =>
+    ({ checkId: "chk_x", routeId: "route_x", oracle: "state-mutation", status, reason });
+
+  it("reports a reproduction when the replay confirmed the finding again", () => {
+    const result = base({ findings: [{ id: "TRK-0007" } as never], outcomes: [outcome("failed")] });
+    expect(describeReplay("TRK-0007", result)).toEqual({ verdict: "reproduced", summary: "TRK-0007 reproduced." });
+  });
+
+  it("reports no reproduction only when the check actually passed", () => {
+    const { verdict, summary } = describeReplay("TRK-0007", base({ outcomes: [outcome("passed")] }));
+    expect(verdict).toBe("not-reproduced");
+    expect(summary).toMatch(/did NOT reproduce - the check now passes/);
+  });
+
+  it.each(["inconclusive", "errored", "unavailable"] as const)(
+    "reports an %s replay as untestable rather than as a disappearance of the flaw",
+    (status) => {
+      // Regression: a state-mutation replay against already-changed state reported "did NOT
+      // reproduce", which reads as "the flaw is gone" when nothing of the sort was shown.
+      const { verdict, summary } = describeReplay("TRK-0007", base({ outcomes: [outcome(status, "state already changed")] }));
+      expect(verdict).toBe("untestable");
+      expect(summary).toContain("could not be re-tested");
+      expect(summary).toContain(status);
+      expect(summary).toContain("state already changed");
+      expect(summary).not.toContain("did NOT reproduce");
+    },
+  );
+
+  it("reports an empty replay as untestable", () => {
+    expect(describeReplay("TRK-0007", base()).verdict).toBe("untestable");
   });
 });

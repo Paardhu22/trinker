@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
-  calculateExecutionCoverage, hasFaults, isScanComplete,
+  calculateExecutionCoverage, hasFaults, isFault, isScanComplete,
   type CheckOutcome, type ExecutionCoverageSummary, type Finding, type Plan, type ScanResult,
 } from "@trinker/core";
 
@@ -130,9 +130,16 @@ function toSarif(report: SecurityReport): Record<string, unknown> {
     fullDescription: { text: finding.invariant },
     properties: { severity: finding.severity, oracle: finding.oracle },
   }));
-  const untested = result.outcomes.filter((outcome) => outcome.status === "errored" || outcome.status === "unavailable");
+  // Every check without a verdict, not only the faults. An inconclusive check tested nothing
+  // either, and a dashboard that showed only findings would present the route as clean.
+  const untested = result.outcomes.filter((outcome) => outcome.status !== "passed" && outcome.status !== "failed");
   const untestedRule = untested.length > 0
-    ? [{ id: "TRK-UNTESTED", name: "Security check did not run", shortDescription: { text: "A planned security check produced no verdict" } }]
+    ? [{
+        id: "TRK-UNTESTED",
+        name: "Security check did not run",
+        shortDescription: { text: "A planned security check produced no verdict" },
+        fullDescription: { text: "This route was not tested. Absence of a finding for it is not evidence that it is secure." },
+      }]
     : [];
 
   return {
@@ -151,9 +158,12 @@ function toSarif(report: SecurityReport): Record<string, unknown> {
           message: { text: `${finding.verdict} Replay: ${finding.replay.command}` },
           properties: { oracle: finding.oracle, invariant: finding.invariant, status: finding.status, routeId: finding.routeId },
         })),
-        // Surface faults as SARIF results too, so a CI dashboard cannot show a clean run for a scan that never executed.
+        // Surface untested checks as results too, so a CI dashboard cannot show a clean run for a
+        // scan that never executed. A fault is a warning; a legitimately inconclusive check is a
+        // note, which keeps the two distinguishable without hiding either.
         ...untested.map((outcome: CheckOutcome) => ({
-          ruleId: "TRK-UNTESTED", level: "warning" as const,
+          ruleId: "TRK-UNTESTED",
+          level: isFault(outcome.status) ? ("warning" as const) : ("note" as const),
           message: { text: `Check ${outcome.checkId} on ${outcome.routeId} produced no verdict (${outcome.status}): ${outcome.reason}` },
           properties: { checkId: outcome.checkId, routeId: outcome.routeId, oracle: outcome.oracle, status: outcome.status },
         })),
