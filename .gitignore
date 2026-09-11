@@ -1,0 +1,7 @@
+node_modules/
+dist/
+coverage/
+.trinker/runtime.json
+.trinker/reports/
+.trinker/events/
+.trinker/cache/
