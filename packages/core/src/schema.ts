@@ -91,7 +91,18 @@ export const StateMutationCheckSchema = CheckBaseSchema.extend({
 
 export const MetamorphicResponseCheckSchema = CheckBaseSchema.extend({
   oracle: z.literal("metamorphic-response"),
-  variants: z.array(z.object({ name: z.string(), queryBindings: z.record(ValueBindingSchema) }).strict()).min(2),
+  /** Identity used for every variant. The relation is about the parameters, not about who asks. */
+  identityId: z.string(),
+  /**
+   * The declared relation between variant responses.
+   * `identical` - status and body must match exactly; use when a parameter must not influence the
+   *   response at all, which is how client-controlled data scoping is detected.
+   * `status-identical` - only the status must match; use when the body legitimately varies.
+   */
+  relation: z.enum(["identical", "status-identical"]).default("identical"),
+  variants: z.array(z.object({ name: z.string().min(1), queryBindings: z.record(ValueBindingSchema) }).strict()).min(2),
+  /** Repeats of the first variant used to prove the endpoint is deterministic before comparing. */
+  calibration: z.object({ stabilityReads: z.number().int().min(1).max(5).default(1) }).strict().default({ stabilityReads: 1 }),
 }).strict();
 
 export const BrowserExecutionCheckSchema = CheckBaseSchema.extend({ oracle: z.literal("browser-execution") }).strict();
@@ -153,7 +164,9 @@ export const PlanSchema = z.object({
       ? [...check.allowedIdentityIds, ...check.deniedIdentityIds]
       : check.oracle === "state-mutation"
         ? [check.readIdentityId, ...check.unauthorizedIdentityIds]
-        : [];
+        : check.oracle === "metamorphic-response"
+          ? [check.identityId]
+          : [];
     for (const identityId of referencedIdentities) {
       if (!identityIds.has(identityId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["checks", check.id], message: `Unknown identity: ${identityId}` });
     }

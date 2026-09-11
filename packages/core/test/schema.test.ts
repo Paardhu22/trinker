@@ -18,7 +18,7 @@ describe("plan schema", () => {
       const extra = oracle === "state-mutation"
         ? { readRequest: { routeId: "route_get_orders_11111111", pathBindings: {}, queryBindings: {}, headerBindings: {} }, protectedPaths: ["ownerId"], readIdentityId: "identity_owner", unauthorizedIdentityIds: ["identity_peer"] }
         : oracle === "metamorphic-response"
-          ? { variants: [{ name: "a", queryBindings: {} }, { name: "b", queryBindings: {} }] }
+          ? { identityId: "identity_owner", variants: [{ name: "a", queryBindings: {} }, { name: "b", queryBindings: {} }] }
           : {};
       expect(() => makePlan({ checks: [{ ...base, ...extra }] })).not.toThrow();
     }

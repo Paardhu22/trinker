@@ -5,12 +5,12 @@ import {
   PlanSchema, RuntimeConfigSchema, calculateExecutionCoverage, calculatePlanCoverage, runPlan,
   type Finding, type Plan, type RuntimeConfig, type ScanEvent, type ScanResult,
 } from "@trinker/core";
-import { differentialAuthorizationOracle, stateMutationOracle } from "@trinker/oracles";
+import { differentialAuthorizationOracle, metamorphicResponseOracle, stateMutationOracle } from "@trinker/oracles";
 import { createReport, type SecurityReport, writeReport } from "@trinker/report";
 import { discoverSurface } from "@trinker/surface";
 
 /** Every oracle the runner can dispatch to. A check naming anything else is reported as unavailable. */
-export const ORACLES = [differentialAuthorizationOracle, stateMutationOracle];
+export const ORACLES = [differentialAuthorizationOracle, stateMutationOracle, metamorphicResponseOracle];
 
 const trinkerDir = (projectDir: string) => join(projectDir, ".trinker");
 const planPath = (projectDir: string) => join(trinkerDir(projectDir), "plan.json");
