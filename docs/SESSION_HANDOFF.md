@@ -62,7 +62,7 @@ dependency graph (§4, §13).
 
 ### Packages
 
-~3,200 lines of source, ~2,100 lines of test, 81 tracked files, 17 commits.
+~3,400 lines of source, ~2,400 lines of test, 84 tracked files, 20 commits.
 
 | Package | Name | src | test | Responsibility | Status |
 |---|---|---|---|---|---|
@@ -72,8 +72,10 @@ dependency graph (§4, §13).
 | `oracles` | `@trinker/oracles` | 414 | 468 | three deterministic oracles | **Active** |
 | `report` | `@trinker/report` | 167 | 105 | JSON / Markdown / SARIF | **Active** |
 | `compiler` | `@trinker/compiler` | 364 | 254 | LLM boundary: proposal contract, validation, budget | **Built, no provider** |
-| `probes` | `@trinker/probes` | 2 | 0 | placeholder for OOB payloads | **Stub / orphan** |
-| `vitest` | `@trinker/vitest` | 2 | 0 | placeholder for consumer assertions | **Stub / orphan** |
+| `vitest` | `@trinker/vitest` | 100 | 137 | assertions for running a scan in your own suite | **Active** |
+
+`@trinker/probes` was deleted: out-of-band testing needs a collector that does not exist, and the
+schema already reserves the oracle name.
 
 ### Dependency direction
 
@@ -365,10 +367,16 @@ Valid schema oracle name. No Playwright/Puppeteer, no DOM oracle. Reports `unava
 This is the main blocker for targets whose surface is not in source (Juice Shop needed a
 hand-written plan for exactly this reason).
 
-### Vitest integration — ⬜
+### Test-suite integration — ✅
 
-`@trinker/vitest` is 2 lines. No matchers, no harness. (Vitest *is* the repo's own test runner; the
-consumer-facing package is what is stubbed.)
+`@trinker/vitest` provides `assertSecure`, `assertNoConfirmedFindings`, `assertScanComplete`,
+`assertNoFaults`, `assertFindingIds`, and `describeScan`. Plain throwing functions, so they work in
+Vitest, Jest, or node:test with no test-runner dependency. `assertSecure` checks completeness before
+findings, because "no findings" from a scan that ran nothing is the failure mode this project
+exists to prevent.
+
+Not provided: custom Vitest matchers (`expect(x).toBeSecure()`), which would need vitest as a peer
+dependency.
 
 ### Other gaps
 
@@ -465,32 +473,36 @@ escalation, GraphQL-specific attacks, race conditions/TOCTOU, business-logic abu
 
 ## 8. Testing and verification
 
-### ⚠️ `pnpm` is still not installed
+### `pnpm` is not on PATH, but `npx pnpm@10.19.0` works
 
-`package.json` pins `pnpm@10.19.0` and all docs use `pnpm`, but **`pnpm` is not on `PATH`** and
-`corepack` is absent. `node_modules/` is correctly populated from a previous install, so the
-workspace binaries work directly. CI uses `pnpm/action-setup`, so the pipeline is unaffected.
+`package.json` pins `pnpm@10.19.0`. It is not installed globally (npm's prefix is `/usr`, which
+needs root — not changed), but **`npx pnpm@10.19.0 <script>` works**, and all documented commands
+were verified through it: `install --frozen-lockfile`, `typecheck`, `test`, `build`. CI uses
+`pnpm/action-setup` and is unaffected.
 
 ### Commands that work
 
 ```bash
-./node_modules/.bin/vitest run                     # 230 tests, 16 files, ~1.1s
+npx pnpm@10.19.0 test                              # the documented path; 255 tests
+./node_modules/.bin/vitest run                     # same suite from the root, ~1.1s
 (cd packages/<name> && ../../node_modules/.bin/tsc --noEmit)   # clean, all 8
 (cd packages/<name> && ../../node_modules/.bin/tsup src/index.ts --format esm --dts)
 node packages/trinker/dist/cli.js <command>        # `trinker` is not linked on PATH
 ```
 
-### Test status — ✅ 230/230
+### Test status — ✅ 255/255 (17 files)
 
 ```
-core/architecture      15    core/safety           20    oracles/state-mutation    19
-core/events             8    core/runner           20    oracles/metamorphic        9
-core/bindings          17    core/coverage         10    oracles/differential-auth 12
-core/schema             6    surface/extract       26    surface/discover           8
-compiler/proposal      26    trinker/scan-view     17    trinker/workflow           8
+core            96   (architecture 15, safety 20, runner 20, bindings 17, coverage 10, events 8, schema 6)
+oracles         40   (state-mutation 19, differential-auth 12, metamorphic 9)
+surface         34   (extract 26, discover 8)
+trinker         32   (scan-view 17, workflow 15)
+compiler        26
+vitest          18
+report           9
 ```
 
-Grew from **9 → 230** across two sessions. `safety.ts` went from zero coverage to 20 tests.
+Grew from **9 → 255** across two sessions. `safety.ts` went from zero coverage to 20 tests.
 
 ### Typecheck / build — ✅ clean, all 8 packages
 
@@ -541,7 +553,7 @@ commands are correct and the local `pnpm` gap is purely a local environment issu
 
 ### Known failures
 
-1. `pnpm` unavailable locally — documented commands fail as written.
+1. `pnpm` not on PATH — prefix documented commands with `npx pnpm@10.19.0`.
 2. `trinker` not linked on PATH — use `node packages/trinker/dist/cli.js`.
 3. None outstanding in CI — both jobs are green.
 
@@ -553,8 +565,8 @@ All reproduced against current code. The critical/high items from last session a
 
 ### Medium
 
-**I-1 · Three orphan packages.** `@trinker/probes` and `@trinker/vitest` are 2-line stubs imported
-by nothing. `@trinker/compiler` is complete but unreachable from the CLI. Decide: wire or delete.
+**I-1 · `@trinker/compiler` is unreachable from the CLI.** Complete and tested, but nothing invokes
+it — by design, until a provider exists. (`probes` was deleted and `vitest` implemented.)
 
 **I-2 · `surface.discovered` is a phantom event.** Declared in `ScanEventType`, never emitted —
 `discoverSurface` runs during `compile`, which has no bus.
@@ -650,13 +662,12 @@ including the full Juice Shop end-to-end.
 specification with extracted routes. JSON only; YAML is refused with a conversion hint rather than
 parsed loosely. A project with no extractable source now produces a usable plan.
 
-**P0-3 · Decide the fate of the orphan packages.** *(~30 min)*
-Either delete `@trinker/probes` and `@trinker/vitest`, or give them a real first slice. Two 2-line
-packages published in `exports` are misleading about what exists.
+**P0-3 · ~~Decide the fate of the orphan packages~~ — DONE.** `@trinker/probes` deleted;
+`@trinker/vitest` implemented as a real assertion API.
 
 ### P1 — important
 
-**P1-1 · Second Juice Shop check using a different oracle.** Point `state-mutation` or
+**P1-1 · Second Juice Shop check using a different oracle.** *(next thing to do)* Point `state-mutation` or
 `metamorphic-response` at a real Juice Shop flaw (`PUT /api/Users/:id` mass assignment is a good
 candidate). Proves the newer oracles against real software, not just fixtures.
 
@@ -680,8 +691,9 @@ at all.
 - **P2-2** Crawler / HAR / proxy ingestion (`kind: "crawler"` is reserved).
 - **P2-3** OOB collector + `out-of-band` oracle.
 - **P2-4** `browser-execution` oracle.
-- **P2-5** `@trinker/vitest` consumer assertion API.
-- **P2-6** Multi-target support; RBAC matrix from `identity.roles`; plan migration for
+- **P2-5** Custom Vitest matchers on top of `@trinker/vitest` (needs vitest as a peer dependency).
+- **P2-6** YAML OpenAPI support (needs a parser dependency).
+- **P2-7** Multi-target support; RBAC matrix from `identity.roles`; plan migration for
   `schemaVersion: 2`; HTTP client hardening.
 
 ---
@@ -801,8 +813,10 @@ Suite: **9 → 230 tests**. Typecheck clean, all 8 packages build, 17 commits.
 
 ### What the next session should do first
 
-**Decide the fate of the orphan packages (P0-3)**, then pick up P1. CI is green and OpenAPI
-ingestion is wired, so the foundation is verified by observation rather than inspection.
+**Point a second oracle at Juice Shop (P1-1).** `state-mutation` and `metamorphic-response` are
+covered by unit tests and fixtures but have never run against real software; only
+`differential-authorization` has. `PUT /api/Users/:id` (mass assignment) is a good candidate. All
+P0 items are closed, CI is green, and every claim in this document is verified by observation.
 
 **Do not start a provider implementation before P0-1 and P0-2.** The gate it needs is built and
 tested; what is missing is reach into real applications, not more LLM surface area.
