@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  PlanSchema, RuntimeConfigSchema, calculateExecutionCoverage, calculatePlanCoverage, runPlan,
+  PlanSchema, RuntimeConfigSchema, calculateExecutionCoverage, calculatePlanCoverage,
+  isScanComplete, runPlan,
   type Finding, type Plan, type RuntimeConfig, type ScanEvent, type ScanResult,
 } from "@trinker/core";
 import { differentialAuthorizationOracle, metamorphicResponseOracle, stateMutationOracle } from "@trinker/oracles";
@@ -144,6 +145,120 @@ async function readOpenApi(path: string): Promise<{ surface: Surface; source: st
     throw new Error(`${path} declared no usable operations under "paths".`);
   }
   return { surface, source: path };
+}
+
+/* --------------------------------------------------------------- console models */
+
+export interface DashboardFinding {
+  id: string; severity: string; title: string; method: string; path: string; oracle: string;
+}
+
+/**
+ * Everything the console's dashboard shows, gathered from the same sources the CLI uses.
+ *
+ * Assembled here rather than in rendering code so the console stays a presentation layer, and so
+ * every number on screen is one the engine actually produced. Missing data is `undefined`, never a
+ * placeholder — a dashboard that invents a coverage percentage is worse than one that says "no scan
+ * yet".
+ */
+export interface DashboardModel {
+  planPath: string;
+  planId?: string | undefined;
+  targetRef?: string | undefined;
+  targetUrl?: string | undefined;
+  applicationId?: string | undefined;
+  lastScanAt?: string | undefined;
+  status: "no-plan" | "no-checks" | "no-scan" | "clean" | "incomplete" | "findings";
+  routes: number;
+  checks: number;
+  passed: number;
+  findings: number;
+  /** Checks that produced no verdict. The dashboard must never imply a clean scan without this. */
+  untested: number;
+  durationMs?: number | undefined;
+  plannedPercent?: number | undefined;
+  verifiedPercent?: number | undefined;
+  runtimeTokens: number;
+  recentFindings: DashboardFinding[];
+  oracles: string[];
+  problem?: string | undefined;
+}
+
+export async function loadDashboard(projectDir: string): Promise<DashboardModel> {
+  const base: DashboardModel = {
+    planPath: planPath(projectDir),
+    status: "no-plan",
+    routes: 0, checks: 0, passed: 0, findings: 0, untested: 0,
+    runtimeTokens: 0, recentFindings: [],
+    oracles: ORACLES.map((oracle) => oracle.name),
+  };
+
+  let plan: Plan;
+  try { plan = await loadPlan(projectDir); }
+  catch (error) { return { ...base, problem: error instanceof Error ? error.message : "Plan could not be read" }; }
+
+  const routeById = new Map(plan.surface.routes.map((route) => [route.id, route]));
+  const model: DashboardModel = {
+    ...base,
+    planId: plan.planId,
+    applicationId: plan.target.applicationId,
+    targetRef: plan.target.allowedTargetRefs[0],
+    routes: plan.surface.routes.length,
+    checks: plan.checks.filter((check) => check.enabled).length,
+    status: plan.checks.length === 0 ? "no-checks" : "no-scan",
+    plannedPercent: calculatePlanCoverage(plan).percent,
+  };
+
+  // The target URL is local operator configuration, not a secret; credentials are never read here.
+  try {
+    const runtime = await loadRuntime(projectDir);
+    const ref = model.targetRef;
+    if (ref !== undefined) model.targetUrl = runtime.targets[ref]?.url;
+  } catch { /* a missing or invalid runtime config is reported by the config screen, not here */ }
+
+  let report: SecurityReport;
+  try { report = await loadLatestReport(projectDir); }
+  catch { return model; }
+
+  const { result } = report;
+  return {
+    ...model,
+    lastScanAt: report.generatedAt,
+    durationMs: result.durationMs,
+    passed: result.checks.passed,
+    findings: result.findings.length,
+    untested: result.checks.inconclusive + result.checks.errored + result.checks.unavailable,
+    runtimeTokens: result.tokens.runtimeInput + result.tokens.runtimeOutput,
+    verifiedPercent: report.coverage.verifiedPercent,
+    status: result.findings.length > 0 ? "findings" : isScanComplete(result) ? "clean" : "incomplete",
+    recentFindings: result.findings.map((finding) => {
+      const route = routeById.get(finding.routeId);
+      return {
+        id: finding.id,
+        severity: finding.severity,
+        title: finding.title,
+        oracle: finding.oracle,
+        method: route?.method ?? "",
+        path: route?.pathTemplate ?? finding.routeId,
+      };
+    }),
+  };
+}
+
+/** The recorded proposal, for the compiler review screen. Absent until a compilation has run. */
+export interface RecordedProposal {
+  basePlanId?: string;
+  record: Record<string, string | number>;
+  added: { identities: string[]; fixtures: string[]; invariants: string[]; checks: string[] };
+  rejected: Array<{ kind: string; id: string; reason: string }>;
+  rationales: Record<string, string>;
+  notes: string[];
+  plan: Plan;
+}
+
+export async function loadRecordedProposal(projectDir: string): Promise<RecordedProposal | undefined> {
+  try { return JSON.parse(await readFile(proposalPath(projectDir), "utf8")) as RecordedProposal; }
+  catch { return undefined; }
 }
 
 /* ------------------------------------------------------- LLM-assisted compilation */
@@ -336,6 +451,13 @@ export async function loadRuntime(projectDir: string): Promise<RuntimeConfig> {
   const parsed = RuntimeConfigSchema.safeParse(JSON.parse(await readFile(runtimePath(projectDir), "utf8")));
   if (!parsed.success) throw new Error(describeIssues(".trinker/runtime.json", parsed.error.issues));
   return parsed.data;
+}
+
+export async function toggleMutationAuthorized(projectDir: string): Promise<boolean> {
+  const runtime = await loadRuntime(projectDir);
+  runtime.mutationAuthorized = !runtime.mutationAuthorized;
+  await writeFile(runtimePath(projectDir), `${JSON.stringify(runtime, null, 2)}\n`, "utf8");
+  return runtime.mutationAuthorized;
 }
 
 export interface ScanOutput { result: ScanResult; report: SecurityReport; plan: Plan }
