@@ -1,6 +1,8 @@
-export { launchTui } from "./tui.js";
+export { launchTui } from "./tui/app.js";
 export { applyScanEvent, emptyScanView, progressRatio, untestedCount, type ScanView } from "./scan-view.js";
 export {
-  compileProject, runProject, verifyFinding, describeReplay, coverageForProject, executionCoverageForProject, ORACLES,
-  type ReplayVerdict,
+  applyRecordedProposal, compileProject, coverageForProject, describeReplay,
+  executionCoverageForProject, llmCompileProject, loadDashboard, loadRecordedProposal,
+  runProject, verifyFinding, ORACLES,
+  type DashboardModel, type RecordedProposal, type ReplayVerdict,
 } from "./workflow.js";

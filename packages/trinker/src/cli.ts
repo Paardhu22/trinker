@@ -2,7 +2,7 @@
 import { cwd } from "node:process";
 import { exitCodeForScan, type ScanEvent } from "@trinker/core";
 import { renderReport, trustSummary, type ReportFormat } from "@trinker/report";
-import { launchTui } from "./tui.js";
+import { launchTui } from "./tui/app.js";
 import {
   applyRecordedProposal, compileProject, coverageForProject, executionCoverageForProject,
   exportLatestReport, initialiseProject, llmCompileProject, runProject, verifyFinding,
