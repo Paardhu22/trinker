@@ -100,6 +100,15 @@ export function footer(hints: Array<[string, string]>, width: number): string {
 export const toHeight = (lines: string[], height: number): string[] =>
   lines.length >= height ? lines.slice(0, height) : [...lines, ...Array(height - lines.length).fill("")];
 
+const useBlockHeader = (width: number, height: number): boolean => height >= 25 && Math.max(width - 2, 0) >= LOGO_WIDTH + 34;
+
+/** Rows available to a screen's body inside `unifiedFrame` at this terminal size. */
+export function frameBodyHeight(width: number, height: number): number {
+  // Masthead: blank + max(logo block, tagline block) + blank, or the compact three-line header.
+  const headerLines = useBlockHeader(width, height) ? Math.max(LOGO.length + 2, 7) + 2 : 3;
+  return Math.max(height - 7 - headerLines, 6);
+}
+
 export interface UnifiedFrameOptions {
   width: number;
   height: number;
@@ -129,7 +138,7 @@ export function unifiedFrame(options: UnifiedFrameOptions): string[] {
   const version = options.version ?? "0.1.0";
   const menuItems = options.menuItems ?? MENU;
 
-  const useBlock = height >= 25 && inner >= LOGO_WIDTH + 34;
+  const useBlock = useBlockHeader(width, height);
 
   let headerLines: string[];
   if (useBlock) {
@@ -159,9 +168,7 @@ export function unifiedFrame(options: UnifiedFrameOptions): string[] {
     ];
   }
 
-  // Fixed framing lines: 1 (top) + headerLines + 1 (div) + 1 (titles) + 1 (title-div) + 1 (footer-div) + 1 (footer) + 1 (bottom) = 7 + headerLines.length
-  const chromeLineCount = 7 + headerLines.length;
-  const bodyHeight = Math.max(height - chromeLineCount, 6);
+  const bodyHeight = frameBodyHeight(width, height);
 
   const sidebar = toHeight(menu(menuItems, options.selected, sidebarWidth - 1), bodyHeight);
   const main = toHeight(options.body, bodyHeight);

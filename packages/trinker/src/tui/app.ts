@@ -9,7 +9,7 @@ import {
   loadDashboard, loadLatestReport, loadPlan, loadRecordedProposal, loadRuntime, runProject,
   toggleMutationAuthorized, verifyFinding, type RecordedProposal,
 } from "../workflow.js";
-import { unifiedFrame, MENU } from "./chrome.js";
+import { frameBodyHeight, unifiedFrame, MENU } from "./chrome.js";
 import { fit } from "./render.js";
 import {
   compilerScreen, configScreen, coverageScreen, dashboardScreen, exportScreen, findingDetailScreen,
@@ -72,6 +72,25 @@ const keypress = (): Promise<string> => {
   if (ended) return Promise.resolve("q");
   return new Promise((resolve) => { waiting = resolve; });
 };
+
+/**
+ * Apply a scroll key to a body of `total` lines. Returns undefined for any other key.
+ *
+ * Clamped at both ends: scrolling past the last line would otherwise leave a blank panel that takes
+ * as many key presses to climb back out of.
+ */
+export function scrollFor(key: string, scroll: number, total: number, visible: number): number | undefined {
+  const max = Math.max(total - visible, 0);
+  const page = Math.max(visible - 2, 1);
+  const next = key === "down" ? scroll + 1
+    : key === "up" ? scroll - 1
+    : key === "pagedown" || key === "space" ? scroll + page
+    : key === "pageup" ? scroll - page
+    : key === "home" ? 0
+    : key === "end" ? max
+    : undefined;
+  return next === undefined ? undefined : Math.min(Math.max(next, 0), max);
+}
 
 const isEnter = (key: string): boolean => key === "return" || key === "enter";
 const isBack = (key: string): boolean => key === "q" || key === "escape";
@@ -235,16 +254,16 @@ async function showHelp(dimensions: () => { width: number; height: number }, sel
   while (true) {
     const { width, height } = dimensions();
     const mw = Math.max(width - SIDEBAR - 4, 20);
-    const lines = helpScreen(mw).slice(scroll);
-    render("help", lines, dimensions, selected, [["↑↓", "scroll"], ["q / Esc / any key", "back"]]);
+    const all = helpScreen(mw);
+    const visible = frameBodyHeight(width, height);
+    scroll = Math.min(scroll, Math.max(all.length - visible, 0));
+    render("help", all.slice(scroll), dimensions, selected, [["↑↓", "scroll"], ["q / Esc / any key", "back"]]);
     const key = await keypress();
     if (key === "\u0000resize") continue;
-    if (isBack(key) || key === "?" || isEnter(key) || key === " ") return;
-    if (key === "down") { scroll += 1; continue; }
-    if (key === "up") { scroll = Math.max(scroll - 1, 0); continue; }
-    if (key === "pagedown") { scroll += Math.max(height - 18, 5); continue; }
-    if (key === "pageup") { scroll = Math.max(scroll - Math.max(height - 18, 5), 0); continue; }
-    return;
+    if (isBack(key) || key === "?" || isEnter(key)) return;
+    const next = scrollFor(key, scroll, all.length, visible);
+    if (next === undefined) return;
+    scroll = next;
   }
 }
 
@@ -335,7 +354,7 @@ async function findingsBrowser(
     const screenTitle = verifyMode ? "verify" : "findings";
     render(screenTitle, findingsScreen({
       findings, routeLabel, selected: cursor, query, searching,
-      width: Math.max(width - SIDEBAR - 4, 20), height: height - 12,
+      width: Math.max(width - SIDEBAR - 4, 20), height: frameBodyHeight(width, height),
     }).concat(status === "" ? [] : ["", status]), dimensions, selected, hints);
 
     const key = await keypress();
@@ -373,7 +392,7 @@ async function findingsBrowser(
       status = c.dim(`Verifying ${finding.id}…`);
       render(screenTitle, findingsScreen({
         findings, routeLabel, selected: cursor, query, searching,
-        width: Math.max(width - SIDEBAR - 4, 20), height: height - 12,
+        width: Math.max(width - SIDEBAR - 4, 20), height: frameBodyHeight(width, height),
       }).concat(["", status]), dimensions, selected, hints);
       status = await replay(projectDir, finding);
       continue;
@@ -382,7 +401,7 @@ async function findingsBrowser(
       status = c.dim(`Verifying ${finding.id}…`);
       render(screenTitle, findingsScreen({
         findings, routeLabel, selected: cursor, query, searching,
-        width: Math.max(width - SIDEBAR - 4, 20), height: height - 12,
+        width: Math.max(width - SIDEBAR - 4, 20), height: frameBodyHeight(width, height),
       }).concat(["", status]), dimensions, selected, hints);
       status = await replay(projectDir, finding);
       continue;
@@ -398,16 +417,15 @@ async function findingDetail(finding: Finding, routeLabel: string, dimensions: (
   let scroll = 0;
   while (true) {
     const { width, height } = dimensions();
-    const lines = findingDetailScreen(finding, routeLabel, Math.max(width - SIDEBAR - 4, 20), scroll);
-    render("finding", lines, dimensions, selected, [["↑↓", "scroll"], ["PgUp/PgDn", "page"], ["q", "back"]]);
+    const all = findingDetailScreen(finding, routeLabel, Math.max(width - SIDEBAR - 4, 20));
+    const visible = frameBodyHeight(width, height);
+    scroll = Math.min(scroll, Math.max(all.length - visible, 0));
+    render("finding", all.slice(scroll), dimensions, selected, [["↑↓", "scroll"], ["PgUp/PgDn", "page"], ["q", "back"]]);
     const key = await keypress();
     if (key === "\u0000resize") continue;
     if (isBack(key)) return;
     if (key === "?") { await showHelp(dimensions, selected); continue; }
-    if (key === "down") { scroll += 1; continue; }
-    if (key === "up") { scroll = Math.max(scroll - 1, 0); continue; }
-    if (key === "pagedown") { scroll += Math.max(height - 18, 5); continue; }
-    if (key === "pageup") { scroll = Math.max(scroll - Math.max(height - 18, 5), 0); continue; }
+    scroll = scrollFor(key, scroll, all.length, visible) ?? scroll;
   }
 }
 
@@ -429,7 +447,10 @@ async function staticScreen(screen: ScreenId, projectDir: string, dimensions: ()
   while (true) {
     const { width, height } = dimensions();
     const mainWidth = Math.max(width - SIDEBAR - 4, 20);
-    const lines = await buildStatic(screen, projectDir, mainWidth, scroll);
+    const all = await buildStatic(screen, projectDir, mainWidth);
+    const visible = frameBodyHeight(width, height);
+    scroll = Math.min(scroll, Math.max(all.length - visible, 0));
+    const lines = all.slice(scroll);
     const hints: Array<[string, string]> = screen === "config"
       ? [["m", "toggle mutations"], ["↑↓", "scroll"], ["q", "back"]]
       : [["↑↓", "scroll"], ["PgUp/PgDn", "page"], ["q", "back"]];
@@ -440,10 +461,8 @@ async function staticScreen(screen: ScreenId, projectDir: string, dimensions: ()
     status = "";
     if (isBack(key)) return;
     if (key === "?") { await showHelp(dimensions, selected); continue; }
-    if (key === "down") { scroll += 1; continue; }
-    if (key === "up") { scroll = Math.max(scroll - 1, 0); continue; }
-    if (key === "pagedown") { scroll += Math.max(height - 18, 5); continue; }
-    if (key === "pageup") { scroll = Math.max(scroll - Math.max(height - 18, 5), 0); continue; }
+    const next = scrollFor(key, scroll, all.length, visible);
+    if (next !== undefined) { scroll = next; continue; }
 
     if (screen === "config" && key === "m") {
       try {
@@ -457,10 +476,10 @@ async function staticScreen(screen: ScreenId, projectDir: string, dimensions: ()
   }
 }
 
-async function buildStatic(screen: ScreenId, projectDir: string, width: number, scroll: number): Promise<string[]> {
+async function buildStatic(screen: ScreenId, projectDir: string, width: number): Promise<string[]> {
   if (screen === "report") {
     const report: SecurityReport = await loadLatestReport(projectDir);
-    return reportScreen(report, width, scroll);
+    return reportScreen(report, width);
   }
   if (screen === "coverage") {
     const plan = await loadPlan(projectDir);
@@ -469,14 +488,14 @@ async function buildStatic(screen: ScreenId, projectDir: string, width: number, 
     let outcomes: SecurityReport["result"]["outcomes"] = [];
     try { outcomes = (await loadLatestReport(projectDir)).result.outcomes; } catch { /* no scan yet */ }
     const { ORACLES } = await import("../workflow.js");
-    return coverageScreen({ planned, executed, outcomes, oracles: ORACLES.map((oracle) => oracle.name), width }).slice(scroll);
+    return coverageScreen({ planned, executed, outcomes, oracles: ORACLES.map((oracle) => oracle.name), width });
   }
   // configuration
   try {
     const runtime = await loadRuntime(projectDir);
-    return configScreen(runtime, undefined, `${projectDir}/.trinker/runtime.json`, width).slice(scroll);
+    return configScreen(runtime, undefined, `${projectDir}/.trinker/runtime.json`, width);
   } catch (error) {
-    return configScreen(undefined, error instanceof Error ? error.message : "unreadable", `${projectDir}/.trinker/runtime.json`, width).slice(scroll);
+    return configScreen(undefined, error instanceof Error ? error.message : "unreadable", `${projectDir}/.trinker/runtime.json`, width);
   }
 }
 
@@ -511,7 +530,10 @@ async function compileScreen(projectDir: string, dimensions: () => { width: numb
   while (true) {
     const { width, height } = dimensions();
     const mainWidth = Math.max(width - SIDEBAR - 4, 20);
-    const lines = compilerScreen({ proposal, planLabel, width: mainWidth, error }).slice(scroll);
+    const all = compilerScreen({ proposal, planLabel, width: mainWidth, error });
+    const visible = frameBodyHeight(width, height);
+    scroll = Math.min(scroll, Math.max(all.length - visible, 0));
+    const lines = all.slice(scroll);
     const hints: Array<[string, string]> = proposal === undefined
       ? [["c", "compile with AI"], ["q", "back"]]
       : [["a", "accept & apply"], ["c", "re-compile"], ["↑↓", "scroll"], ["q", "back"]];
@@ -521,10 +543,8 @@ async function compileScreen(projectDir: string, dimensions: () => { width: numb
     if (key === "\u0000resize") continue;
     if (isBack(key)) return;
     if (key === "?") { await showHelp(dimensions, selected); continue; }
-    if (key === "down") { scroll += 1; continue; }
-    if (key === "up") { scroll = Math.max(scroll - 1, 0); continue; }
-    if (key === "pagedown") { scroll += Math.max(height - 18, 5); continue; }
-    if (key === "pageup") { scroll = Math.max(scroll - Math.max(height - 18, 5), 0); continue; }
+    const next = scrollFor(key, scroll, all.length, visible);
+    if (next !== undefined) { scroll = next; continue; }
 
     if (key === "c") {
       error = undefined;
