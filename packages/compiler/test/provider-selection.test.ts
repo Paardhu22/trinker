@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  API_KEY_ENV, DEFAULT_MODELS, isProviderName, PROVIDER_NAMES, ProviderError, selectProvider,
+  API_KEY_ENV, apiKeyHelp, DEFAULT_MODELS, isProviderName, PROVIDER_NAMES, ProviderError, selectProvider,
 } from "../src/index.js";
 
 describe("provider selection", () => {
@@ -37,5 +37,16 @@ describe("provider selection", () => {
     for (const name of PROVIDER_NAMES) expect(isProviderName(name)).toBe(true);
     expect(isProviderName("openai ")).toBe(false);
     expect(isProviderName("")).toBe(false);
+  });
+});
+
+describe("apiKeyHelp", () => {
+  it("tells a newcomer where to get the key, how to set it, and what to install", () => {
+    const help = apiKeyHelp("anthropic");
+    expect(help).toContain("ANTHROPIC_API_KEY is not set");
+    expect(help).toContain("https://console.anthropic.com/settings/keys");
+    expect(help).toContain('export ANTHROPIC_API_KEY="your-key"');
+    expect(help).toContain("npm install @anthropic-ai/sdk");
+    expect(apiKeyHelp("openai")).toContain("npm install openai");
   });
 });

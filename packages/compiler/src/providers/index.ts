@@ -19,6 +19,35 @@ export const API_KEY_ENV: Record<ProviderName, string> = {
   anthropic: "ANTHROPIC_API_KEY",
 };
 
+const KEY_PAGES: Record<ProviderName, string> = {
+  openai: "https://platform.openai.com/api-keys",
+  anthropic: "https://console.anthropic.com/settings/keys",
+};
+const SDK_PACKAGES: Record<ProviderName, string> = { openai: "openai", anthropic: "@anthropic-ai/sdk" };
+
+/**
+ * What to do when a provider's key is missing, written for someone who has never set an
+ * environment variable. Shown by both the CLI and the console, so the instructions cannot drift.
+ */
+export function apiKeyHelp(provider: ProviderName): string {
+  const variable = API_KEY_ENV[provider];
+  return [
+    `${variable} is not set, so the AI compiler cannot run. Scanning does not need a key; only compiling with AI does.`,
+    "",
+    `1. Create a key at ${KEY_PAGES[provider]}`,
+    "2. Set it in the terminal you run trinker from:",
+    `     bash / zsh:   export ${variable}="your-key"`,
+    `     fish:         set -gx ${variable} "your-key"`,
+    `     PowerShell:   $env:${variable}="your-key"`,
+    "   To keep it for new terminals, add the bash/zsh line to ~/.bashrc or ~/.zshrc.",
+    `3. Install the SDK once:  npm install ${SDK_PACKAGES[provider]}   (add -g if trinker is installed globally)`,
+    "4. Start trinker again from that same terminal.",
+    "",
+    "The key is only read from the environment. Never put it in .trinker/plan.json or commit it.",
+    ...(provider === "openai" ? ["Using Anthropic instead? Pass --provider anthropic, or set TRINKER_PROVIDER=anthropic for the console."] : []),
+  ].join("\n");
+}
+
 export const DEFAULT_MODELS: Record<ProviderName, string> = {
   openai: DEFAULT_OPENAI_MODEL,
   anthropic: DEFAULT_ANTHROPIC_MODEL,

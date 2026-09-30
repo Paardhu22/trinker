@@ -62,6 +62,42 @@ available. Override with `--model`.
 An unknown `--provider` fails rather than falling back to a default. Silently compiling with a
 provider nobody asked for would misattribute both the cost and the resulting plan.
 
+## Setting up an API key
+
+Only `compile --llm` (and **Compile Security Plan → c** in the console) needs a key. Scanning never
+does.
+
+1. **Create a key** with the provider you want to use:
+   - OpenAI (default): https://platform.openai.com/api-keys
+   - Anthropic: https://console.anthropic.com/settings/keys
+
+   Both are prepaid or billed per use; one compilation of a small plan costs a few cents.
+2. **Put it in your environment**, in the terminal you will run trinker from:
+
+   ```bash
+   export OPENAI_API_KEY="your-key"          # bash / zsh
+   set -gx OPENAI_API_KEY "your-key"         # fish
+   $env:OPENAI_API_KEY="your-key"            # PowerShell
+   ```
+
+   That lasts until the terminal closes. To keep it, add the `export` line to `~/.bashrc` or
+   `~/.zshrc` and open a new terminal. Check it with `echo ${OPENAI_API_KEY:+set}`, which prints
+   `set` without revealing the key.
+3. **Install the provider's SDK once.** It is optional so that scans never download it:
+
+   ```bash
+   npm install openai              # or: npm install @anthropic-ai/sdk
+   ```
+
+   Add `-g` if you installed trinker globally with `npm install -g trinker`.
+4. **Compile:** `trinker compile --llm`, or `trinker compile --llm --provider anthropic`. In the
+   console, start `trinker` from the same terminal; set `TRINKER_PROVIDER=anthropic` to use
+   Anthropic there.
+
+Never put the key in `.trinker/plan.json`, `runtime.json`, or anything committed. Trinker reads it
+only from the environment and never writes it anywhere. If you get the steps wrong, trinker prints
+these same instructions.
+
 ## Configuration
 
 | setting | source |

@@ -36,8 +36,9 @@ replay it is printed in the report.
 
 ```bash
 npm install -g trinker      # or: npx trinker <command>
-# optional, only for `trinker compile --llm`:
+# optional, only for `trinker compile --llm` (key setup: docs/LLM_COMPILER.md#setting-up-an-api-key):
 npm install -g openai       # or @anthropic-ai/sdk
+export OPENAI_API_KEY="your-key"
 
 cd path/to/your/authorized-target
 trinker init                # writes .trinker/runtime.json

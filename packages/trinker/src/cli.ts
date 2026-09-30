@@ -89,7 +89,7 @@ function numericFlag(name: string, fallback: number): number {
  * so a model's suggestion becomes one by a human's decision, not by running a command.
  */
 async function compileWithLlm(openApiPath: string | undefined): Promise<void> {
-  const { API_KEY_ENV, isProviderName, PROVIDER_NAMES } = await import("@trinker_vul/compiler");
+  const { API_KEY_ENV, apiKeyHelp, isProviderName, PROVIDER_NAMES } = await import("@trinker_vul/compiler");
 
   const providerIndex = args.indexOf("--provider");
   const provider = providerIndex >= 0 ? args[providerIndex + 1] : "openai";
@@ -99,7 +99,7 @@ async function compileWithLlm(openApiPath: string | undefined): Promise<void> {
 
   const keyVariable = API_KEY_ENV[provider];
   const apiKey = process.env[keyVariable] ?? "";
-  if (apiKey === "") throw new Error(`${keyVariable} is not set. Export it before using \`trinker compile --llm --provider ${provider}\`.`);
+  if (apiKey === "") throw new Error(apiKeyHelp(provider));
 
   const modelIndex = args.indexOf("--model");
   const apply = args.includes("--apply");

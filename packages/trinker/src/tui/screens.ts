@@ -323,13 +323,15 @@ export function wrap(text: string, width: number, indent = ""): string[] {
   const limit = Math.max(width - indent.length, 20);
   const out: string[] = [];
   for (const paragraph of text.split("\n")) {
+    // Keep a paragraph's own indentation, so an indented command stays visibly indented.
+    const lead = /^\s*/.exec(paragraph)?.[0] ?? "";
     let line = "";
-    for (const word of paragraph.split(/\s+/)) {
+    for (const word of paragraph.trim().split(/\s+/)) {
       if (line === "") { line = word; continue; }
-      if (line.length + word.length + 1 > limit) { out.push(indent + line); line = word; }
+      if (lead.length + line.length + word.length + 1 > limit) { out.push(indent + lead + line); line = word; }
       else line += ` ${word}`;
     }
-    out.push(indent + line);
+    out.push(indent + lead + line);
   }
   return out;
 }

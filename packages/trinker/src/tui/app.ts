@@ -551,11 +551,11 @@ async function compileScreen(projectDir: string, dimensions: () => { width: numb
       render("compile", compilerScreen({ proposal: undefined, planLabel, width: mainWidth, busy: "Asking the provider what should be tested…" }), dimensions, selected, [["", c.dim("working…")]]);
       try {
         const { llmCompileProject } = await import("../workflow.js");
-        const { API_KEY_ENV } = await import("@trinker_vul/compiler");
+        const { API_KEY_ENV, apiKeyHelp, isProviderName, PROVIDER_NAMES } = await import("@trinker_vul/compiler");
         const provider = process.env["TRINKER_PROVIDER"] ?? "openai";
-        const variable = API_KEY_ENV[provider as keyof typeof API_KEY_ENV] ?? "OPENAI_API_KEY";
-        const apiKey = process.env[variable] ?? "";
-        if (apiKey === "") throw new Error(`${variable} is not set. Export it before compiling with ${provider}.`);
+        if (!isProviderName(provider)) throw new Error(`TRINKER_PROVIDER="${provider}" is not a provider. Available: ${PROVIDER_NAMES.join(", ")}.`);
+        const apiKey = process.env[API_KEY_ENV[provider]] ?? "";
+        if (apiKey === "") throw new Error(apiKeyHelp(provider));
         await llmCompileProject(projectDir, { provider, apiKey, tokenBudget: 40_000 });
         proposal = await loadRecordedProposal(projectDir);
         scroll = 0;
