@@ -32,18 +32,19 @@ importers:
 
   packages/compiler:
     dependencies:
-      '@anthropic-ai/sdk':
-        specifier: ^0.125.0
-        version: 0.125.0(zod@3.25.76)
       '@trinker/core':
         specifier: workspace:*
         version: link:../core
-      openai:
-        specifier: ^7.15.0
-        version: 7.15.0(zod@3.25.76)
       zod:
         specifier: ^3.24.3
         version: 3.25.76
+    devDependencies:
+      '@anthropic-ai/sdk':
+        specifier: ^0.125.0
+        version: 0.125.0(zod@3.25.76)
+      openai:
+        specifier: ^7.15.0
+        version: 7.15.0(zod@3.25.76)
 
   packages/core:
     dependencies:

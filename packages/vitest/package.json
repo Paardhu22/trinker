@@ -1,6 +1,31 @@
 {
   "name": "@trinker/vitest",
   "version": "0.1.0",
+  "description": "Assertions and Vitest/Jest matchers for running Trinker security scans inside your test suite.",
+  "license": "MIT",
+  "author": "Paardhu22",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Paardhu22/trinker.git",
+    "directory": "packages/vitest"
+  },
+  "homepage": "https://github.com/Paardhu22/trinker/tree/main/packages/vitest#readme",
+  "bugs": {
+    "url": "https://github.com/Paardhu22/trinker/issues"
+  },
+  "keywords": [
+    "security",
+    "appsec",
+    "api-security",
+    "deterministic",
+    "trinker",
+    "vitest",
+    "jest",
+    "testing"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -13,10 +38,12 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/setup.ts --format esm --dts --external vitest",
+    "build": "tsup --clean src/index.ts src/setup.ts --format esm --dts --external vitest",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
@@ -30,5 +57,8 @@
     "vitest": {
       "optional": true
     }
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

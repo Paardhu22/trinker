@@ -197,7 +197,7 @@ async function loadSdk(apiKey: string, timeoutMs: number, baseUrl: string | unde
     });
   } catch (error) {
     throw new ProviderError(
-      "The @anthropic-ai/sdk package is not installed. Install it to use `trinker compile --llm`.",
+      "The @anthropic-ai/sdk package is not installed. Run `npm install @anthropic-ai/sdk` next to trinker to use `trinker compile --llm --provider anthropic`.",
       { cause: error },
     );
   }

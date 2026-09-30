@@ -1,13 +1,51 @@
 {
   "name": "@trinker/oracles",
   "version": "0.1.0",
+  "description": "Trinker's deterministic oracles: differential authorization (BOLA), state mutation, and metamorphic response.",
+  "license": "MIT",
+  "author": "Paardhu22",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Paardhu22/trinker.git",
+    "directory": "packages/oracles"
+  },
+  "homepage": "https://github.com/Paardhu22/trinker/tree/main/packages/oracles#readme",
+  "bugs": {
+    "url": "https://github.com/Paardhu22/trinker/issues"
+  },
+  "keywords": [
+    "security",
+    "appsec",
+    "api-security",
+    "deterministic",
+    "trinker",
+    "bola",
+    "authorization"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
+    "build": "tsup --clean src/index.ts --format esm --dts",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "@trinker/core": "workspace:*" }
+  "dependencies": {
+    "@trinker/core": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }

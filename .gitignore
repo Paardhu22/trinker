@@ -12,3 +12,4 @@ coverage/
 **/.trinker/reports/
 **/.trinker/events/
 **/.trinker/cache/
+packages/trinker/README.md

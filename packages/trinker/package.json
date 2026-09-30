@@ -1,6 +1,32 @@
 {
   "name": "trinker",
   "version": "0.1.0",
+  "description": "Deterministic application security testing: compile a reviewable plan once, replay it on every scan with zero runtime LLM tokens.",
+  "license": "MIT",
+  "author": "Paardhu22",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Paardhu22/trinker.git",
+    "directory": "packages/trinker"
+  },
+  "homepage": "https://github.com/Paardhu22/trinker/tree/main/packages/trinker#readme",
+  "bugs": {
+    "url": "https://github.com/Paardhu22/trinker/issues"
+  },
+  "keywords": [
+    "security",
+    "appsec",
+    "api-security",
+    "deterministic",
+    "trinker",
+    "cli",
+    "bola",
+    "api-security",
+    "dast"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "bin": {
     "trinker": "./dist/cli.js"
@@ -12,12 +38,15 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/cli.ts --format esm --dts",
+    "build": "tsup --clean src/index.ts src/cli.ts --format esm --dts",
     "test": "vitest run --passWithNoTests",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepack": "cp ../../README.md README.md"
   },
   "dependencies": {
     "@trinker/compiler": "workspace:*",
@@ -26,5 +55,8 @@
     "@trinker/report": "workspace:*",
     "@trinker/surface": "workspace:*",
     "yaml": "^2.9.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

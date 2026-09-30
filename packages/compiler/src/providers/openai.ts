@@ -205,7 +205,7 @@ async function loadSdk(apiKey: string, timeoutMs: number, baseUrl: string | unde
     });
   } catch (error) {
     throw new ProviderError(
-      "The openai package is not installed. Install it to use `trinker compile --llm --provider openai`.",
+      "The openai package is not installed. Run `npm install openai` next to trinker to use `trinker compile --llm --provider openai`.",
       { cause: error },
     );
   }

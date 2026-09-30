@@ -1,13 +1,50 @@
 {
   "name": "@trinker/report",
   "version": "0.1.0",
+  "description": "JSON, Markdown, and SARIF reports for Trinker scans that state whether the scan can be trusted.",
+  "license": "MIT",
+  "author": "Paardhu22",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Paardhu22/trinker.git",
+    "directory": "packages/report"
+  },
+  "homepage": "https://github.com/Paardhu22/trinker/tree/main/packages/report#readme",
+  "bugs": {
+    "url": "https://github.com/Paardhu22/trinker/issues"
+  },
+  "keywords": [
+    "security",
+    "appsec",
+    "api-security",
+    "deterministic",
+    "trinker",
+    "sarif"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
+    "build": "tsup --clean src/index.ts --format esm --dts",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "@trinker/core": "workspace:*" }
+  "dependencies": {
+    "@trinker/core": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }

@@ -1,13 +1,49 @@
 {
   "name": "@trinker/core",
   "version": "0.1.0",
+  "description": "Trinker core: plan and runtime schemas, the deterministic runner, typed scan events, and safety gates.",
+  "license": "MIT",
+  "author": "Paardhu22",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Paardhu22/trinker.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/Paardhu22/trinker/tree/main/packages/core#readme",
+  "bugs": {
+    "url": "https://github.com/Paardhu22/trinker/issues"
+  },
+  "keywords": [
+    "security",
+    "appsec",
+    "api-security",
+    "deterministic",
+    "trinker"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
+    "build": "tsup --clean src/index.ts --format esm --dts",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "zod": "^3.24.3" }
+  "dependencies": {
+    "zod": "^3.24.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }

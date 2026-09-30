@@ -27,22 +27,24 @@ replay it is printed in the report.
 - JSON, Markdown, and SARIF reports that state whether the scan can be trusted
 - A keyboard-driven console with live scan progress and finding evidence
 - Assertions for running a scan inside your own test suite (`@trinker/vitest`)
-- An opt-in [LLM compiler](docs/LLM_COMPILER.md) (OpenAI or Anthropic) that proposes checks —
+- An opt-in [LLM compiler](https://github.com/Paardhu22/trinker/blob/main/docs/LLM_COMPILER.md) (OpenAI or Anthropic) that proposes checks —
   validated deterministically before anything reaches a plan, and never involved in a scan
-- An end-to-end [OWASP Juice Shop evaluation](examples/juice-shop/README.md) that confirms a real
+- An end-to-end [OWASP Juice Shop evaluation](https://github.com/Paardhu22/trinker/blob/main/examples/juice-shop/README.md) that confirms a real
   BOLA and passes a negative control
 
 ## Quick start
 
 ```bash
-pnpm install
-pnpm build
+npm install -g trinker      # or: npx trinker <command>
+# optional, only for `trinker compile --llm`:
+npm install -g openai       # or @anthropic-ai/sdk
 
 cd path/to/your/authorized-target
 trinker init                # writes .trinker/runtime.json
 trinker compile             # extracts routes into .trinker/plan.json
 # or, when the surface is not recoverable from source:
-trinker compile --openapi openapi.json
+trinker compile --openapi openapi.json   # JSON or YAML
+trinker compile --har traffic.har         # or traffic recorded in a browser/proxy
 # Author identities, fixtures, invariants, and checks — see docs/PLAN_AUTHORING.md
 # (or have a model propose them: trinker compile --llm, see docs/LLM_COMPILER.md)
 trinker run --ci --format sarif
@@ -54,10 +56,10 @@ nothing until you author one. That is the design, not a gap.
 A model can propose those checks for you with `trinker compile --llm`, but it only ever *proposes*:
 every suggestion is filtered and re-validated deterministically, nothing is written to your plan
 without `--apply`, and a scan still costs zero tokens. See
-[the LLM compiler](docs/LLM_COMPILER.md).
+[the LLM compiler](https://github.com/Paardhu22/trinker/blob/main/docs/LLM_COMPILER.md).
 
 To see the whole loop against a real vulnerable application in about a minute, start with the
-[Juice Shop example](examples/juice-shop/README.md).
+[Juice Shop example](https://github.com/Paardhu22/trinker/blob/main/examples/juice-shop/README.md).
 
 ## Exit codes
 
@@ -116,8 +118,8 @@ expect(await scan()).toBeSecure();
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md) — packages, execution flow, outcome taxonomy, safety model
-- [LLM compiler](docs/LLM_COMPILER.md) — the opt-in `compile --llm` path and its safety boundaries
-- [Plan authoring](docs/PLAN_AUTHORING.md) — how to write each kind of check
-- [Juice Shop evaluation](examples/juice-shop/README.md) — reproducible end-to-end run
-- [Session handoff](docs/SESSION_HANDOFF.md) — current state and roadmap
+- [Architecture](https://github.com/Paardhu22/trinker/blob/main/docs/ARCHITECTURE.md) — packages, execution flow, outcome taxonomy, safety model
+- [LLM compiler](https://github.com/Paardhu22/trinker/blob/main/docs/LLM_COMPILER.md) — the opt-in `compile --llm` path and its safety boundaries
+- [Plan authoring](https://github.com/Paardhu22/trinker/blob/main/docs/PLAN_AUTHORING.md) — how to write each kind of check
+- [Juice Shop evaluation](https://github.com/Paardhu22/trinker/blob/main/examples/juice-shop/README.md) — reproducible end-to-end run
+- [Session handoff](https://github.com/Paardhu22/trinker/blob/main/docs/SESSION_HANDOFF.md) — current state and roadmap

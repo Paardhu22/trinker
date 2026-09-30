@@ -1,6 +1,31 @@
 {
   "name": "@trinker/compiler",
   "version": "0.1.0",
+  "description": "Opt-in LLM compiler for Trinker: proposes security checks that are validated deterministically before reaching a plan.",
+  "license": "MIT",
+  "author": "Paardhu22",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Paardhu22/trinker.git",
+    "directory": "packages/compiler"
+  },
+  "homepage": "https://github.com/Paardhu22/trinker/tree/main/packages/compiler#readme",
+  "bugs": {
+    "url": "https://github.com/Paardhu22/trinker/issues"
+  },
+  "keywords": [
+    "security",
+    "appsec",
+    "api-security",
+    "deterministic",
+    "trinker",
+    "llm",
+    "openai",
+    "anthropic"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -9,17 +34,36 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
+    "build": "tsup --clean src/index.ts --format esm --dts",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.125.0",
     "@trinker/core": "workspace:*",
-    "openai": "^7.15.0",
     "zod": "^3.24.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "openai": "^7.15.0",
+    "@anthropic-ai/sdk": "^0.125.0"
+  },
+  "peerDependenciesMeta": {
+    "openai": {
+      "optional": true
+    },
+    "@anthropic-ai/sdk": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "openai": "^7.15.0",
+    "@anthropic-ai/sdk": "^0.125.0"
   }
 }
