@@ -174,3 +174,28 @@ describe("runner: determinism", () => {
     expect(result.tokens).toEqual({ compileInput: 0, compileOutput: 0, runtimeInput: 0, runtimeOutput: 0, calls: 0 });
   });
 });
+
+describe("runner: severity and evidence policy", () => {
+  it("takes severity from the invariant when the plan declares one", async () => {
+    const plan = makePlan({
+      checks: [authCheck()],
+      invariants: [{ id: "inv_owner_only", kind: "authorization", statement: "Only an owner may read the order.", routeIds: [ROUTE_GET], provenance: "manual", severity: "critical" }],
+    });
+    const result = await run([oracleReturning({ status: "failed", finding: draft() })], plan);
+    expect(result.findings[0]?.severity).toBe("critical");
+  });
+
+  it("keeps the oracle's severity when the invariant declares none", async () => {
+    const result = await run([oracleReturning({ status: "failed", finding: draft() })]);
+    expect(result.findings[0]?.severity).toBe("high");
+  });
+
+  it("drops response bodies from evidence when the runtime forbids them", async () => {
+    const withBody = { ...draft(), evidence: { requests: [], responses: [{ status: 200, headers: {}, bodyDigest: "sha256:x", bodyPreview: "{\"email\":\"a@b.c\"}" }], notes: [] } };
+    const result = await runPlan({
+      plan: planWithCheck(), runtime: makeRuntime({ evidence: { responseBodies: false } }),
+      oracles: [oracleReturning({ status: "failed", finding: withBody })], http: client(),
+    }).result;
+    expect(result.findings[0]?.evidence.responses[0]).toEqual({ status: 200, headers: {}, bodyDigest: "sha256:x" });
+  });
+});

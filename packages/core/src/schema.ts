@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SeveritySchema } from "./findings.js";
 
 export const HttpMethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
 export type HttpMethod = z.infer<typeof HttpMethodSchema>;
@@ -59,6 +60,8 @@ export const InvariantSchema = z.object({
   routeIds: z.array(z.string()).min(1),
   resourceId: z.string().optional(),
   provenance: z.enum(["manual", "deterministic", "llm-assisted"]),
+  /** Severity of a confirmed violation. Overrides the oracle's default, which is `high`. */
+  severity: SeveritySchema.optional(),
 }).strict();
 
 const CheckBaseSchema = z.object({
@@ -198,5 +201,8 @@ export const RuntimeConfigSchema = z.object({
    *  committed plan. */
   values: z.record(z.union([z.string(), z.number(), z.boolean()])).default({}),
   mutationAuthorized: z.boolean().default(false),
+  /** What evidence a finding may retain. `responseBodies: false` drops every body preview, for
+   *  targets whose responses can carry personal data; the sha256 digest is kept either way. */
+  evidence: z.object({ responseBodies: z.boolean().default(true) }).strict().optional(),
 }).strict();
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;

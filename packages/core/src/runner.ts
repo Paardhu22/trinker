@@ -134,6 +134,12 @@ async function execute(options: RunOptions, bus: ScanEventBus, scanId: string): 
         const id = `TRK-${String(findings.length + 1).padStart(4, "0")}`;
         // The runner owns the id, so it also owns the replay command. An oracle cannot desynchronise them.
         const finding: Finding = { ...outcome.finding, id, replay: { checkId: outcome.finding.replay.checkId, command: `trinker verify ${id}` } };
+        // Severity is a property of the invariant, not of the oracle that happened to confirm it.
+        const severity = plan.invariants.find((invariant) => invariant.id === check.invariantId)?.severity;
+        if (severity !== undefined) finding.severity = severity;
+        if (runtime.evidence?.responseBodies === false) {
+          finding.evidence = { ...finding.evidence, responses: finding.evidence.responses.map(({ bodyPreview: _dropped, ...response }) => response) };
+        }
         findings.push(finding);
         bus.emit("finding.confirmed", { findingId: id, severity: finding.severity, checkId: check.id, routeId: finding.routeId, title: finding.title });
         record("failed", outcome.reason ?? "Oracle confirmed a violation", id);

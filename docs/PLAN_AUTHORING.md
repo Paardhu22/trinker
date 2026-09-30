@@ -180,6 +180,21 @@ whose body carries a timestamp is reported inconclusive under `identical`, not c
 Any non-loopback host must be named in that target's `allowHosts`, or the scan aborts before
 sending a request.
 
+Findings keep a masked preview (up to 1000 bytes) of each witness response, which can contain
+personal data. Set `"evidence": { "responseBodies": false }` to keep only the status, headers, and
+sha256 body digest.
+
+## Severity
+
+Every oracle reports a confirmed violation as `high` unless the invariant says otherwise:
+
+```json
+{ "id": "inv_invoice_owner_only", "kind": "authorization", "severity": "critical", ... }
+```
+
+Allowed values: `critical`, `high`, `medium`, `low`, `info`. Severity belongs to the invariant
+because it reflects what the protected data is worth, not which oracle caught the violation.
+
 ## Running
 
 ```bash
