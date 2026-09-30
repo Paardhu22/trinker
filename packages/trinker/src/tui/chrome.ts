@@ -1,4 +1,4 @@
-import { box, center, columns, fit, visibleWidth } from "./render.js";
+import { box, center, columns, fit } from "./render.js";
 import { c } from "./theme.js";
 
 /** The wordmark. Kept as one block so it is obvious what to edit. */

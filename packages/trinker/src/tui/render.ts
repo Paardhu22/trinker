@@ -151,7 +151,7 @@ export function progressBar(ratio: number, width: number): string {
  */
 export function maskSensitiveSecrets(text: string): string {
   return text
-    .replace(/Bearer\s+[A-Za-z0-9_\-.]+/gi, "Bearer [REDACTED]")
-    .replace(/sk-[A-Za-z0-9_\-]{20,}/g, "[REDACTED_KEY]")
-    .replace(/eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}/g, "[REDACTED_JWT]");
+    .replace(/Bearer\s+[A-Za-z0-9_.-]+/gi, "Bearer [REDACTED]")
+    .replace(/sk-[A-Za-z0-9_-]{20,}/g, "[REDACTED_KEY]")
+    .replace(/eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, "[REDACTED_JWT]");
 }

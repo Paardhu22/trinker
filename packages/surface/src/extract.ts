@@ -199,7 +199,7 @@ export function extractFile(source: string, file = "unknown.ts"): FileExtraction
 
       // app.route('/books').get(h).post(h) — walk the whole chain, not just the first link.
       if (HTTP_METHODS.has(methodName)) {
-        const chain = routeChainBase(node.expression.expression, ast);
+        const chain = routeChainBase(node.expression.expression);
         if (chain) addRoute(chain.receiver, methodName, chain.path, lineOf(node), enclosing);
       }
     }
@@ -212,7 +212,7 @@ export function extractFile(source: string, file = "unknown.ts"): FileExtraction
 }
 
 /** Walk back through `.get(h).post(h)` links to the `x.route('/path')` call that started the chain. */
-function routeChainBase(node: ts.Expression, ast: ts.SourceFile): { receiver: string; path: string } | undefined {
+function routeChainBase(node: ts.Expression): { receiver: string; path: string } | undefined {
   let current: ts.Expression = node;
   for (let depth = 0; depth < 12; depth++) {
     if (!ts.isCallExpression(current) || !ts.isPropertyAccessExpression(current.expression)) return undefined;

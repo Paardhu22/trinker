@@ -5,9 +5,9 @@ import { calculatePlanCoverage } from "@trinker/core";
 import type { SecurityReport } from "@trinker/report";
 import { applyScanEvent, emptyScanView, type ScanView } from "../scan-view.js";
 import {
-  applyRecordedProposal, coverageForProject, executionCoverageForProject, exportLatestReport,
+  applyRecordedProposal, executionCoverageForProject, exportLatestReport,
   loadDashboard, loadLatestReport, loadPlan, loadRecordedProposal, loadRuntime, runProject,
-  toggleMutationAuthorized, verifyFinding, type DashboardModel, type RecordedProposal,
+  toggleMutationAuthorized, verifyFinding, type RecordedProposal,
 } from "../workflow.js";
 import { unifiedFrame, MENU } from "./chrome.js";
 import { fit } from "./render.js";

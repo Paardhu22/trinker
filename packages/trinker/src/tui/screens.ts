@@ -8,7 +8,7 @@ import {
   field, fit, formatDuration, formatNumber, formatWhen, maskSensitiveSecrets, progressBar, rule,
   padEnd, scrollHint, truncate, windowed,
 } from "./render.js";
-import { BG_SELECTED, c, glyph, paintBackground, severityColour, statusColour } from "./theme.js";
+import { c, glyph, severityColour, statusColour } from "./theme.js";
 
 /**
  * Screens.
