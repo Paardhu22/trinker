@@ -27,20 +27,81 @@ export interface OracleResult {
 }
 export interface Oracle { name: Check["oracle"]; execute(context: OracleContext): Promise<OracleResult>; }
 
+export interface FetchHttpClientOptions {
+  timeoutMs?: number | undefined;
+  /** Minimum gap between requests, to stay under a target's rate limit. */
+  delayMs?: number | undefined;
+  /** Extra attempts after a network error. Only for safe methods; a write is never re-sent. */
+  retries?: number | undefined;
+}
+
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const MAX_REDIRECTS = 5;
+
+/**
+ * The runner's HTTP client.
+ *
+ * Redirects are followed only within the original origin. `fetch` would otherwise follow a 30x to
+ * any host, which would let a target walk a scan past the loopback/allowHosts gate; a cross-origin
+ * redirect is instead returned to the oracle as the 30x it is.
+ */
 export class FetchHttpClient implements HttpClient {
-  public constructor(private readonly timeoutMs = 15_000) {}
+  private readonly timeoutMs: number;
+  private readonly delayMs: number;
+  private readonly retries: number;
+  private last = 0;
+
+  public constructor(options: FetchHttpClientOptions | number = {}) {
+    const resolved = typeof options === "number" ? { timeoutMs: options } : options;
+    this.timeoutMs = resolved.timeoutMs ?? 15_000;
+    this.delayMs = resolved.delayMs ?? 0;
+    this.retries = resolved.retries ?? 0;
+  }
+
   async request(request: HttpRequest): Promise<HttpResponse> {
-    const started = performance.now();
-    const init: RequestInit = { method: request.method, headers: { ...request.headers }, signal: AbortSignal.timeout(this.timeoutMs) };
-    if (request.body !== undefined) {
-      init.body = typeof request.body === "string" ? request.body : JSON.stringify(request.body);
-      if (!Object.keys(request.headers).some((name) => name.toLowerCase() === "content-type")) {
-        (init.headers as Record<string, string>)["content-type"] = "application/json";
+    const attempts = SAFE_METHODS.has(request.method.toUpperCase()) ? this.retries + 1 : 1;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.send(request);
+      } catch (error) {
+        // Only transport failures are retried; an HTTP status is an answer, not a failure.
+        if (attempt >= attempts) throw error;
       }
     }
-    const response = await fetch(request.url, init);
-    const headers = Object.fromEntries(response.headers.entries());
-    return { status: response.status, headers, body: await response.text(), elapsedMs: performance.now() - started };
+  }
+
+  private async send(request: HttpRequest): Promise<HttpResponse> {
+    const wait = this.last + this.delayMs - Date.now();
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    this.last = Date.now();
+
+    const started = performance.now();
+    const headers: Record<string, string> = { ...request.headers };
+    const init: RequestInit = { method: request.method, headers, redirect: "manual", signal: AbortSignal.timeout(this.timeoutMs) };
+    if (request.body !== undefined) {
+      init.body = typeof request.body === "string" ? request.body : JSON.stringify(request.body);
+      if (!Object.keys(request.headers).some((name) => name.toLowerCase() === "content-type")) headers["content-type"] = "application/json";
+    }
+
+    const origin = new URL(request.url).origin;
+    let url = request.url;
+    let response = await fetch(url, init);
+    for (let hop = 0; hop < MAX_REDIRECTS && response.status >= 300 && response.status < 400; hop++) {
+      const location = response.headers.get("location");
+      if (location === null) break;
+      const next = new URL(location, url);
+      if (next.origin !== origin) break;
+      url = next.toString();
+      // 303, and 301/302 after a non-GET, turn into a GET without a body, as browsers do.
+      const toGet = response.status === 303 || ((response.status === 301 || response.status === 302) && request.method !== "GET" && request.method !== "HEAD");
+      response = await fetch(url, toGet ? { ...init, method: "GET", body: null } : init);
+    }
+    return {
+      status: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      body: await response.text(),
+      elapsedMs: performance.now() - started,
+    };
   }
 }
 
@@ -106,7 +167,7 @@ async function execute(options: RunOptions, bus: ScanEventBus, scanId: string): 
   bus.emit("usage.updated", { compileInput: 0, compileOutput: 0, runtimeInput: 0, runtimeOutput: 0, calls: 0 });
 
   const oracleByName = new Map(options.oracles.map((oracle) => [oracle.name, oracle]));
-  const http = options.http ?? new FetchHttpClient();
+  const http = options.http ?? new FetchHttpClient(runtime.http ?? {});
 
   for (const check of enabled) {
     bus.emit("check.started", { checkId: check.id, oracle: check.oracle, routeId: check.request.routeId });

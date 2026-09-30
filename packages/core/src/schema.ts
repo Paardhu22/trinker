@@ -204,5 +204,11 @@ export const RuntimeConfigSchema = z.object({
   /** What evidence a finding may retain. `responseBodies: false` drops every body preview, for
    *  targets whose responses can carry personal data; the sha256 digest is kept either way. */
   evidence: z.object({ responseBodies: z.boolean().default(true) }).strict().optional(),
+  /** Transport tuning. Retries apply to network errors on safe methods only. */
+  http: z.object({
+    timeoutMs: z.number().int().positive().optional(),
+    delayMs: z.number().int().min(0).optional(),
+    retries: z.number().int().min(0).max(5).optional(),
+  }).strict().optional(),
 }).strict();
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ScanResult } from "@trinker/core";
-import { acceptFinding, compileProject, describeReplay, loadBaseline, loadPlan } from "../src/workflow.js";
+import { acceptFinding, compileProject, describeReplay, loadBaseline, loadPlan, selectTarget } from "../src/workflow.js";
 
 const projects: string[] = [];
 const newProject = async (): Promise<string> => {
@@ -264,5 +264,17 @@ describe("accepting a finding", () => {
     const project = await newProject();
     await seedReport(project);
     await expect(acceptFinding(project, "TRK-0001", "  ")).rejects.toThrow(/needs a reason/);
+  });
+});
+
+describe("target selection", () => {
+  it("moves the chosen allowed target to the front, and refuses one the plan does not allow", async () => {
+    const project = await newProject();
+    await writeFile(join(project, "app.ts"), "import express from 'express';\nconst app = express();\napp.get('/api/orders/:id', handler);\n");
+    const { plan } = await compileProject(project);
+    const multi = { ...plan, target: { ...plan.target, allowedTargetRefs: ["local", "staging"] } };
+    expect(selectTarget(multi, "staging").target.allowedTargetRefs).toEqual(["staging"]);
+    expect(selectTarget(multi, undefined)).toBe(multi);
+    expect(() => selectTarget(multi, "production")).toThrow(/not in this plan's allowedTargetRefs/);
   });
 });

@@ -49,6 +49,7 @@ run options:
   --ci                  non-interactive; print the report to stdout
   --format <fmt>        json | markdown | sarif (default json)
   --strict              treat inconclusive checks as a failure to test
+  --target <ref>        scan this entry of the plan's allowedTargetRefs (default: the first)
 
 'trinker run' never contacts a model. Only 'compile --llm' does, and only when you pass it.
 
@@ -59,6 +60,14 @@ exit codes:
   3  the scan could not be trusted (a check errored or had no oracle)`;
 
 const DEFAULT_TOKEN_BUDGET = 60_000;
+
+function stringFlag(name: string): string | undefined {
+  const index = args.indexOf(name);
+  if (index < 0) return undefined;
+  const value = args[index + 1];
+  if (value === undefined || value.startsWith("--")) throw new Error(`${name} needs a value.`);
+  return value;
+}
 
 function numericFlag(name: string, fallback: number): number {
   const index = args.indexOf(name);
@@ -232,7 +241,7 @@ async function main(): Promise<void> {
     const formatIndex = args.indexOf("--format");
     const format = parseFormat(formatIndex >= 0 ? args[formatIndex + 1] : undefined, "json");
     const onEvent = ci ? undefined : (event: ScanEvent) => write(`${event.type} ${JSON.stringify(event.data)}`);
-    const { result, report } = await runProject(projectDir, onEvent);
+    const { result, report } = await runProject(projectDir, onEvent, stringFlag("--target"));
     if (ci) write(renderReport(report, format));
     else {
       write(`\nScan complete: ${result.findings.length} confirmed findings. Runtime LLM tokens: 0`);
@@ -245,7 +254,7 @@ async function main(): Promise<void> {
   if (command === "verify") {
     const findingId = args[0];
     if (!findingId) throw new Error("Usage: trinker verify <finding-id>");
-    const { report, summary } = await verifyFinding(projectDir, findingId);
+    const { report, summary } = await verifyFinding(projectDir, findingId, undefined, stringFlag("--target"));
     write(renderReport(report, "markdown"));
     write(summary);
     // A replay asks a direct question, so an inconclusive answer is a failure to answer it, not a

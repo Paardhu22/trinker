@@ -480,8 +480,22 @@ export function describeReplay(findingId: string, result: ScanResult): { verdict
   return { verdict: "untestable", summary: `${findingId} could not be re-tested (${outcome.status}): ${outcome.reason}` };
 }
 
-export async function runProject(projectDir: string, onEvent?: (event: ScanEvent) => void): Promise<ScanOutput> {
-  const plan = await loadPlan(projectDir);
+/**
+ * Point a plan at one of its allowed targets.
+ *
+ * The runner always scans `allowedTargetRefs[0]`; choosing another is a matter of moving it to the
+ * front. Only a ref the committed plan already allows can be chosen, so the flag cannot widen scope.
+ */
+export function selectTarget(plan: Plan, targetRef: string | undefined): Plan {
+  if (targetRef === undefined) return plan;
+  if (!plan.target.allowedTargetRefs.includes(targetRef)) {
+    throw new Error(`Target "${targetRef}" is not in this plan's allowedTargetRefs (${plan.target.allowedTargetRefs.join(", ")}).`);
+  }
+  return { ...plan, target: { ...plan.target, allowedTargetRefs: [targetRef] } };
+}
+
+export async function runProject(projectDir: string, onEvent?: (event: ScanEvent) => void, targetRef?: string): Promise<ScanOutput> {
+  const plan = selectTarget(await loadPlan(projectDir), targetRef);
   const runtime = await loadRuntime(projectDir);
   // The listener is handed to runPlan rather than attached afterwards, so the very first event is observed.
   const handle = runPlan({ plan, runtime, oracles: ORACLES, ...(onEvent ? { onEvent } : {}) });
@@ -500,11 +514,11 @@ export async function runProject(projectDir: string, onEvent?: (event: ScanEvent
  * with the original identifier: it is the same finding, and a report that renamed it would break
  * the link back to the original scan.
  */
-export async function verifyFinding(projectDir: string, findingId: string, onEvent?: (event: ScanEvent) => void): Promise<ScanOutput & { reproduced: boolean; verdict: ReplayVerdict; summary: string }> {
+export async function verifyFinding(projectDir: string, findingId: string, onEvent?: (event: ScanEvent) => void, targetRef?: string): Promise<ScanOutput & { reproduced: boolean; verdict: ReplayVerdict; summary: string }> {
   const latest = await loadLatestReport(projectDir);
   const original = latest.result.findings.find((candidate) => candidate.id === findingId);
   if (!original) throw new Error(`Finding ${findingId} is not present in the latest report. Run \`trinker report\` to list findings.`);
-  const plan = await loadPlan(projectDir);
+  const plan = selectTarget(await loadPlan(projectDir), targetRef);
   const check = plan.checks.find((candidate) => candidate.id === original.replay.checkId);
   if (!check) throw new Error(`Replay check ${original.replay.checkId} is not present in the current plan`);
   const runtime = await loadRuntime(projectDir);

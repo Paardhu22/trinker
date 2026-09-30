@@ -180,6 +180,14 @@ whose body carries a timestamp is reported inconclusive under `identical`, not c
 Any non-loopback host must be named in that target's `allowHosts`, or the scan aborts before
 sending a request.
 
+Optional transport tuning: `"http": { "timeoutMs": 15000, "delayMs": 100, "retries": 1 }`.
+`delayMs` spaces requests out for rate-limited targets; `retries` re-sends a request only after a
+network error and only for `GET`/`HEAD`/`OPTIONS`. Redirects are followed within the target's
+origin only; a redirect to any other host is returned to the oracle as the 30x it is.
+
+A plan may allow several targets (`allowedTargetRefs: ["local", "staging"]`). The first is scanned
+by default; `trinker run --target staging` picks another, but only one the plan already allows.
+
 Findings keep a masked preview (up to 1000 bytes) of each witness response, which can contain
 personal data. Set `"evidence": { "responseBodies": false }` to keep only the status, headers, and
 sha256 body digest.
