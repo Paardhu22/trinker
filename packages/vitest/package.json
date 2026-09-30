@@ -1,6 +1,6 @@
 {
   "name": "@trinker_vul/vitest",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Assertions and Vitest/Jest matchers for running Trinker security scans inside your test suite.",
   "license": "MIT",
   "author": "Paardhu22",

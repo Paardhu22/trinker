@@ -1,6 +1,6 @@
 {
   "name": "@trinker_vul/surface",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Trinker surface discovery: Express/Fastify route extraction, OpenAPI (JSON/YAML), and HAR ingestion.",
   "license": "MIT",
   "author": "Paardhu22",

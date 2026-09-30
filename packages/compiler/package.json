@@ -1,6 +1,6 @@
 {
   "name": "@trinker_vul/compiler",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Opt-in LLM compiler for Trinker: proposes security checks that are validated deterministically before reaching a plan.",
   "license": "MIT",
   "author": "Paardhu22",

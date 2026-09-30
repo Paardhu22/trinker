@@ -1,6 +1,6 @@
 {
   "name": "@trinker_vul/report",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "JSON, Markdown, and SARIF reports for Trinker scans that state whether the scan can be trusted.",
   "license": "MIT",
   "author": "Paardhu22",

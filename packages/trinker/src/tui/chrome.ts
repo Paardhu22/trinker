@@ -135,7 +135,7 @@ export function unifiedFrame(options: UnifiedFrameOptions): string[] {
   const inner = Math.max(width - 2, 0);
   const sidebarWidth = options.sidebarWidth ?? 28;
   const mainWidth = Math.max(inner - sidebarWidth - 1, 10);
-  const version = options.version ?? "0.1.0";
+  const version = options.version ?? "0.1.1";
   const menuItems = options.menuItems ?? MENU;
 
   const useBlock = useBlockHeader(width, height);

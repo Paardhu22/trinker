@@ -1,6 +1,6 @@
 {
   "name": "trinker",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Deterministic application security testing: compile a reviewable plan once, replay it on every scan with zero runtime LLM tokens.",
   "license": "MIT",
   "author": "Paardhu22",

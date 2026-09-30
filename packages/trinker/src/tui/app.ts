@@ -25,7 +25,7 @@ import { BG_APP, c, paintBackground } from "./theme.js";
  * duplicates no engine logic.
  */
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 const MIN_WIDTH = 72;
 const SIDEBAR = 30;
 

@@ -148,7 +148,7 @@ function toSarif(report: SecurityReport): Record<string, unknown> {
     version: "2.1.0",
     $schema: "https://json.schemastore.org/sarif-2.1.0.json",
     runs: [{
-      tool: { driver: { name: "Trinker", version: "0.1.0", informationUri: "https://github.com/Paardhu22/trinker", rules: [...findingRules, ...untestedRule] } },
+      tool: { driver: { name: "Trinker", version: "0.1.1", informationUri: "https://github.com/Paardhu22/trinker", rules: [...findingRules, ...untestedRule] } },
       invocations: [{
         executionSuccessful: !hasFaults(result),
         exitSignalName: isScanComplete(result) ? "complete" : "incomplete",
