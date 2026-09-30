@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { parseDocument } from "yaml";
 import {
   BaselineSchema, PlanSchema, RuntimeConfigSchema, activeFindings, applyBaseline, calculateExecutionCoverage,
   calculatePlanCoverage, isScanComplete, runPlan,
@@ -116,11 +117,11 @@ export async function compileProject(projectDir: string, options: CompileOptions
 }
 
 /**
- * Read an OpenAPI document.
+ * Read an OpenAPI document, JSON or YAML.
  *
- * JSON only. A YAML specification is refused with a conversion hint rather than parsed loosely —
- * a misread specification would put endpoints that do not exist into a reviewed security plan,
- * which is worse than refusing the file.
+ * YAML is parsed strictly (YAML 1.2, duplicate keys and parse warnings are errors): a misread
+ * specification would put endpoints that do not exist into a reviewed security plan, which is worse
+ * than refusing the file.
  */
 async function readOpenApi(path: string): Promise<{ surface: Surface; source: string }> {
   let raw: string;
@@ -129,17 +130,18 @@ async function readOpenApi(path: string): Promise<{ surface: Surface; source: st
   } catch {
     throw new Error(`Could not read the OpenAPI document at ${path}`);
   }
-  if (!raw.trimStart().startsWith("{")) {
-    throw new Error(
-      `${path} does not look like JSON. Trinker reads JSON OpenAPI documents only, because loosely parsing a specification could introduce endpoints that do not exist.\n` +
-      `Convert it first, for example:  npx js-yaml ${path} > openapi.json`,
-    );
-  }
   let document: unknown;
-  try {
-    document = JSON.parse(raw);
-  } catch (error) {
-    throw new Error(`${path} is not valid JSON: ${error instanceof Error ? error.message : "parse error"}`);
+  if (raw.trimStart().startsWith("{")) {
+    try {
+      document = JSON.parse(raw);
+    } catch (error) {
+      throw new Error(`${path} is not valid JSON: ${error instanceof Error ? error.message : "parse error"}`);
+    }
+  } else {
+    const parsed = parseDocument(raw, { uniqueKeys: true, prettyErrors: true });
+    const problems = [...parsed.errors, ...parsed.warnings];
+    if (problems.length > 0) throw new Error(`${path} is not valid YAML:\n${problems.map((problem) => `  ${problem.message}`).join("\n")}`);
+    document = parsed.toJS({ maxAliasCount: 100 });
   }
   const surface = ingestOpenApi(document, path);
   if (surface.routes.length === 0) {

@@ -25,6 +25,7 @@
     "@trinker/core": "workspace:*",
     "@trinker/oracles": "workspace:*",
     "@trinker/report": "workspace:*",
-    "@trinker/surface": "workspace:*"
+    "@trinker/surface": "workspace:*",
+    "yaml": "^2.9.1"
   }
 }

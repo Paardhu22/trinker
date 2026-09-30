@@ -29,7 +29,7 @@ const USAGE = `trinker - deterministic application security testing
   trinker init                  create .trinker/runtime.json
   trinker compile [options]     extract routes into .trinker/plan.json
       --force                   discard authored checks and regenerate
-      --openapi <file.json>     also ingest an OpenAPI document
+      --openapi <file>          also ingest an OpenAPI document (JSON or YAML)
       --llm                     ALSO ask a model to propose checks (opt-in, costs tokens)
       --provider <name>         openai (default) or anthropic
       --token-budget <n>        max tokens one LLM compilation may spend (default 60000)
@@ -197,7 +197,7 @@ async function main(): Promise<void> {
   if (command === "compile") {
     const openApiIndex = args.indexOf("--openapi");
     const openApiPath = openApiIndex >= 0 ? args[openApiIndex + 1] : undefined;
-    if (openApiIndex >= 0 && openApiPath === undefined) throw new Error("Usage: trinker compile --openapi <file.json>");
+    if (openApiIndex >= 0 && openApiPath === undefined) throw new Error("Usage: trinker compile --openapi <file.json|file.yaml>");
 
     if (args.includes("--apply-proposal")) { await applyProposalFile(); return; }
     if (args.includes("--llm")) { await compileWithLlm(openApiPath); return; }

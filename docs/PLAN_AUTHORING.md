@@ -15,9 +15,9 @@ trinker compile --openapi openapi.json
 ```
 
 Its operations are merged with anything extracted from source; a route described by both keeps both
-source references. JSON only: a YAML document is refused with a conversion hint rather than parsed
-loosely, because a misread specification would put endpoints that do not exist into a reviewed
-security plan.
+source references. JSON and YAML are both accepted. YAML is parsed strictly — duplicate keys or any
+parse warning refuse the file — because a misread specification would put endpoints that do not
+exist into a reviewed security plan.
 
 ## The two files
 

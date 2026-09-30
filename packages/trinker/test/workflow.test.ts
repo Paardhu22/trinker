@@ -167,11 +167,20 @@ describe("OpenAPI ingestion", () => {
     expect(plan.coverage.inScopeRouteIds).toHaveLength(3);
   });
 
-  it("refuses a YAML specification with a conversion hint rather than misparsing it", async () => {
+  it("reads a YAML specification the same as its JSON equivalent", async () => {
     const project = await newProject();
-    await writeFile(join(project, "openapi.yaml"), "openapi: 3.0.0\npaths:\n  /api/x:\n    get: {}\n");
-    await expect(compileProject(project, { openApiPath: join(project, "openapi.yaml") }))
-      .rejects.toThrow(/does not look like JSON.*js-yaml/s);
+    await writeFile(join(project, "openapi.yaml"), "openapi: 3.0.0\npaths:\n  /api/x/{id}:\n    get:\n      parameters:\n        - { name: id, in: path, required: true }\n");
+    await writeFile(join(project, "openapi.json"), JSON.stringify({ openapi: "3.0.0", paths: { "/api/x/{id}": { get: { parameters: [{ name: "id", in: "path", required: true }] } } } }));
+    const fromYaml = (await compileProject(project, { openApiPath: join(project, "openapi.yaml"), force: true })).plan.surface.routes;
+    const fromJson = (await compileProject(project, { openApiPath: join(project, "openapi.json"), force: true })).plan.surface.routes;
+    expect(fromYaml.map(({ sourceRefs: _yaml, ...route }) => route)).toEqual(fromJson.map(({ sourceRefs: _json, ...route }) => route));
+    expect(fromYaml).toHaveLength(1);
+  });
+
+  it("refuses YAML with duplicate keys rather than silently keeping one", async () => {
+    const project = await newProject();
+    await writeFile(join(project, "openapi.yaml"), "openapi: 3.0.0\npaths:\n  /api/x:\n    get: {}\n  /api/x:\n    delete: {}\n");
+    await expect(compileProject(project, { openApiPath: join(project, "openapi.yaml") })).rejects.toThrow(/not valid YAML/);
   });
 
   it("reports a missing file, malformed JSON, and an empty specification distinctly", async () => {
