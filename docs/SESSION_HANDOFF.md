@@ -70,13 +70,13 @@ dependency graph (§4, §13).
 
 | Package | Name | src | test | Responsibility | Status |
 |---|---|---|---|---|---|
-| `core` | `@trinker/core` | 834 | 741 | schemas, safety, bindings, runner, events, findings, coverage | **Active** |
+| `core` | `@trinker_vul/core` | 834 | 741 | schemas, safety, bindings, runner, events, findings, coverage | **Active** |
 | `trinker` | `trinker` | 951 | 296 | CLI, TUI, scan-view reducer, workflow adapter | **Active** |
-| `surface` | `@trinker/surface` | 475 | 242 | AST extraction, mount resolution, OpenAPI ingest + merge | **Active** |
-| `oracles` | `@trinker/oracles` | 414 | 468 | three deterministic oracles | **Active** |
-| `report` | `@trinker/report` | 167 | 105 | JSON / Markdown / SARIF | **Active** |
-| `compiler` | `@trinker/compiler` | 1500 | 1400 | LLM boundary: prompt, context, proposal contract, validation, budget, OpenAI + Claude providers | **Active (opt-in)** |
-| `vitest` | `@trinker/vitest` | 100 | 137 | assertions for running a scan in your own suite | **Active** |
+| `surface` | `@trinker_vul/surface` | 475 | 242 | AST extraction, mount resolution, OpenAPI ingest + merge | **Active** |
+| `oracles` | `@trinker_vul/oracles` | 414 | 468 | three deterministic oracles | **Active** |
+| `report` | `@trinker_vul/report` | 167 | 105 | JSON / Markdown / SARIF | **Active** |
+| `compiler` | `@trinker_vul/compiler` | 1500 | 1400 | LLM boundary: prompt, context, proposal contract, validation, budget, OpenAI + Claude providers | **Active (opt-in)** |
+| `vitest` | `@trinker_vul/vitest` | 100 | 137 | assertions for running a scan in your own suite | **Active** |
 
 `@trinker/probes` was deleted: out-of-band testing needs a collector that does not exist, and the
 schema already reserves the oracle name.
@@ -84,16 +84,16 @@ schema already reserves the oracle name.
 ### Dependency direction
 
 ```text
-trinker CLI / TUI ──┬─> @trinker/surface ─┐
-                    ├─> @trinker/oracles ─┤
-                    ├─> @trinker/report  ─┼─> @trinker/core ──> zod
-                    └─> @trinker/compiler ┘        (only dependency)
+trinker CLI / TUI ──┬─> @trinker_vul/surface ─┐
+                    ├─> @trinker_vul/oracles ─┤
+                    ├─> @trinker_vul/report  ─┼─> @trinker_vul/core ──> zod
+                    └─> @trinker_vul/compiler ┘        (only dependency)
 
-@trinker/compiler ──> @trinker/core        (compile only; never on the scan path)
+@trinker_vul/compiler ──> @trinker_vul/core        (compile only; never on the scan path)
 ```
 
 `core` imports only `zod`, `node:crypto`, `node:events`. `surface`, `oracles`, and `report` must
-never depend on or import `@trinker/compiler` — **`packages/core/test/architecture.test.ts`
+never depend on or import `@trinker_vul/compiler` — **`packages/core/test/architecture.test.ts`
 enforces this**, along with "no provider SDK anywhere on the scan path" and "core does no
 filesystem I/O".
 
@@ -461,7 +461,7 @@ hand-written plan for exactly this reason).
 
 ### Test-suite integration — ✅
 
-`@trinker/vitest` provides `assertSecure`, `assertNoConfirmedFindings`, `assertScanComplete`,
+`@trinker_vul/vitest` provides `assertSecure`, `assertNoConfirmedFindings`, `assertScanComplete`,
 `assertNoFaults`, `assertFindingIds`, and `describeScan`. Plain throwing functions, so they work in
 Vitest, Jest, or node:test with no test-runner dependency. `assertSecure` checks completeness before
 findings, because "no findings" from a scan that ran nothing is the failure mode this project
@@ -675,7 +675,7 @@ All reproduced against current code. The critical/high items from last session a
 
 ### Medium
 
-**I-1 · `@trinker/compiler` is unreachable from the CLI.** Complete and tested, but nothing invokes
+**I-1 · `@trinker_vul/compiler` is unreachable from the CLI.** Complete and tested, but nothing invokes
 it — by design, until a provider exists. (`probes` was deleted and `vitest` implemented.)
 
 **I-2 · `surface.discovered` is a phantom event.** Declared in `ScanEventType`, never emitted —
@@ -731,8 +731,8 @@ checks, not incidental requests — but it reads oddly. Consider distinguishing 
 | **Install state** | ✅ populated, `pnpm-lock.yaml` committed |
 | **Modules** | ESM throughout, `NodeNext` |
 | **Build** | `tsup` 8.5.1 → ESM + `.d.ts` · TypeScript 5.9.3 |
-| **Test** | Vitest 3.2.7 · root `vitest.config.ts` aliases `@trinker/*` → `src` |
-| **Runtime deps** | `zod` 3.25.76; `typescript` (used *as a library* by `@trinker/surface`). **No HTTP library** (global `fetch`). **No LLM SDK.** |
+| **Test** | Vitest 3.2.7 · root `vitest.config.ts` aliases `@trinker_vul/*` → `src` |
+| **Runtime deps** | `zod` 3.25.76; `typescript` (used *as a library* by `@trinker_vul/surface`). **No HTTP library** (global `fetch`). **No LLM SDK.** |
 | **Docker** | 29.7.2 · Juice Shop image pulled and verified working |
 | **Git** | initialized, 17 commits, pushed to `git@github.com:Paardhu22/trinker.git` |
 | **Linter** | none |
@@ -785,7 +785,7 @@ specification with extracted routes. JSON only; YAML is refused with a conversio
 parsed loosely. A project with no extractable source now produces a usable plan.
 
 **P0-3 · ~~Decide the fate of the orphan packages~~ — DONE.** `@trinker/probes` deleted;
-`@trinker/vitest` implemented as a real assertion API.
+`@trinker_vul/vitest` implemented as a real assertion API.
 
 ### P1 — important
 
@@ -813,7 +813,7 @@ at all.
 - **P2-2** Crawler / HAR / proxy ingestion (`kind: "crawler"` is reserved).
 - **P2-3** OOB collector + `out-of-band` oracle.
 - **P2-4** `browser-execution` oracle.
-- **P2-5** Custom Vitest matchers on top of `@trinker/vitest` (needs vitest as a peer dependency).
+- **P2-5** Custom Vitest matchers on top of `@trinker_vul/vitest` (needs vitest as a peer dependency).
 - **P2-6** YAML OpenAPI support (needs a parser dependency).
 - **P2-7** Multi-target support; RBAC matrix from `identity.roles`; plan migration for
   `schemaVersion: 2`; HTTP client hardening.
@@ -827,7 +827,7 @@ Each is currently upheld **and tested**. Breaking any destroys the product's rea
 **13.1 · `trinker run` is zero-LLM by default.**
 Enforced structurally: no provider SDK is a dependency of any scan-path package, and
 `packages/core/test/architecture.test.ts` fails if `core`/`oracles`/`report`/`surface` ever depend
-on or import `@trinker/compiler`. `ScanResult.tokens` is pinned to zero. **Do not "just import" the
+on or import `@trinker_vul/compiler`. `ScanResult.tokens` is pinned to zero. **Do not "just import" the
 compiler into the runner.**
 
 **13.2 · Runtime LLM use must be explicit opt-in.**
@@ -969,7 +969,7 @@ Two design calls worth keeping:
   helper requires Zod v4 and Trinker's security schemas are v3; migrating them to satisfy a prompt
   detail would be the wrong trade. Zod stays the only validation authority, which is what makes the
   wire schema a hint rather than a contract.
-- The CLI reaches `@trinker/compiler` by **dynamic import**, so `trinker run` never loads a model
+- The CLI reaches `@trinker_vul/compiler` by **dynamic import**, so `trinker run` never loads a model
   client. An architecture test fails if a static import appears.
 
 **Real-provider status: UNVERIFIED.** No credentials in this environment; no successful real run is

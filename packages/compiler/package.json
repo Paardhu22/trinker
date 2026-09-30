@@ -1,5 +1,5 @@
 {
-  "name": "@trinker/compiler",
+  "name": "@trinker_vul/compiler",
   "version": "0.1.0",
   "description": "Opt-in LLM compiler for Trinker: proposes security checks that are validated deterministically before reaching a plan.",
   "license": "MIT",
@@ -44,7 +44,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@trinker/core": "workspace:*",
+    "@trinker_vul/core": "workspace:*",
     "zod": "^3.24.3"
   },
   "publishConfig": {

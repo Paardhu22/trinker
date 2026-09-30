@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   exitCodeForScan, runPlan,
   type HttpClient, type HttpRequest, type HttpResponse, type Plan, type RuntimeConfig,
-} from "@trinker/core";
+} from "@trinker_vul/core";
 import { differentialAuthorizationOracle } from "../src/index.js";
 
 const ROUTE = "route_get_orders_12345678";

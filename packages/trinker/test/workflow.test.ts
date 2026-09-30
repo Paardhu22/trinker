@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ScanResult } from "@trinker/core";
+import type { ScanResult } from "@trinker_vul/core";
 import { acceptFinding, compileProject, describeReplay, loadBaseline, loadPlan, selectTarget } from "../src/workflow.js";
 
 const projects: string[] = [];

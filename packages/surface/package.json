@@ -1,5 +1,5 @@
 {
-  "name": "@trinker/surface",
+  "name": "@trinker_vul/surface",
   "version": "0.1.0",
   "description": "Trinker surface discovery: Express/Fastify route extraction, OpenAPI (JSON/YAML), and HAR ingestion.",
   "license": "MIT",
@@ -45,7 +45,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@trinker/core": "workspace:*",
+    "@trinker_vul/core": "workspace:*",
     "typescript": "^5.8.3"
   },
   "publishConfig": {

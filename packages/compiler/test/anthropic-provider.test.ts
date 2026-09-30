@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { PlanSchema, type Plan } from "@trinker/core";
+import { PlanSchema, type Plan } from "@trinker_vul/core";
 import {
   buildCompilerContext, COMPILER_PROMPT_VERSION, COMPILER_SYSTEM_PROMPT, createAnthropicProvider,
   DEFAULT_MODEL, PLAN_PROPOSAL_JSON_SCHEMA, ProviderError, type MessageClient,

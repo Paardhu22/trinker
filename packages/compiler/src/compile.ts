@@ -1,4 +1,4 @@
-import type { Plan } from "@trinker/core";
+import type { Plan } from "@trinker_vul/core";
 import { buildCompilerContext, type CompilerContext } from "./context.js";
 import { COMPILER_PROMPT_VERSION } from "./prompt.js";
 import { applyProposal, type ApplyProposalResult } from "./proposal.js";

@@ -1,5 +1,5 @@
 {
-  "name": "@trinker/core",
+  "name": "@trinker_vul/core",
   "version": "0.1.0",
   "description": "Trinker core: plan and runtime schemas, the deterministic runner, typed scan events, and safety gates.",
   "license": "MIT",

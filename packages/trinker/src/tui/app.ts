@@ -1,8 +1,8 @@
 import { emitKeypressEvents } from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
-import type { Finding, ScanEvent } from "@trinker/core";
-import { calculatePlanCoverage } from "@trinker/core";
-import type { SecurityReport } from "@trinker/report";
+import type { Finding, ScanEvent } from "@trinker_vul/core";
+import { calculatePlanCoverage } from "@trinker_vul/core";
+import type { SecurityReport } from "@trinker_vul/report";
 import { applyScanEvent, emptyScanView, type ScanView } from "../scan-view.js";
 import {
   applyRecordedProposal, executionCoverageForProject, exportLatestReport,
@@ -551,7 +551,7 @@ async function compileScreen(projectDir: string, dimensions: () => { width: numb
       render("compile", compilerScreen({ proposal: undefined, planLabel, width: mainWidth, busy: "Asking the provider what should be tested…" }), dimensions, selected, [["", c.dim("working…")]]);
       try {
         const { llmCompileProject } = await import("../workflow.js");
-        const { API_KEY_ENV } = await import("@trinker/compiler");
+        const { API_KEY_ENV } = await import("@trinker_vul/compiler");
         const provider = process.env["TRINKER_PROVIDER"] ?? "openai";
         const variable = API_KEY_ENV[provider as keyof typeof API_KEY_ENV] ?? "OPENAI_API_KEY";
         const apiKey = process.env[variable] ?? "";

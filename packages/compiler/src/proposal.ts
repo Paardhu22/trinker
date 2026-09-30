@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CheckSchema, PlanSchema, type Check, type Plan } from "@trinker/core";
+import { CheckSchema, PlanSchema, type Check, type Plan } from "@trinker_vul/core";
 
 /**
  * What a compiler may propose.

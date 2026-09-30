@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Plan, Route } from "@trinker/core";
+import type { Plan, Route } from "@trinker_vul/core";
 
 /**
  * The optional LLM boundary.

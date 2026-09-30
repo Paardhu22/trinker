@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { cwd } from "node:process";
-import { exitCodeForScan, type ScanEvent } from "@trinker/core";
-import { renderReport, trustSummary, type ReportFormat } from "@trinker/report";
+import { exitCodeForScan, type ScanEvent } from "@trinker_vul/core";
+import { renderReport, trustSummary, type ReportFormat } from "@trinker_vul/report";
 import { launchTui } from "./tui/app.js";
 import {
   acceptFinding, applyRecordedProposal, compileProject, coverageForProject, executionCoverageForProject,
@@ -89,7 +89,7 @@ function numericFlag(name: string, fallback: number): number {
  * so a model's suggestion becomes one by a human's decision, not by running a command.
  */
 async function compileWithLlm(openApiPath: string | undefined): Promise<void> {
-  const { API_KEY_ENV, isProviderName, PROVIDER_NAMES } = await import("@trinker/compiler");
+  const { API_KEY_ENV, isProviderName, PROVIDER_NAMES } = await import("@trinker_vul/compiler");
 
   const providerIndex = args.indexOf("--provider");
   const provider = providerIndex >= 0 ? args[providerIndex + 1] : "openai";

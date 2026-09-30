@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Plan, Route } from "@trinker/core";
+import type { Plan, Route } from "@trinker_vul/core";
 import type { ProposalRequest } from "./provider.js";
 
 /** A few lines around a route declaration, so the model can see how the handler is wired. */

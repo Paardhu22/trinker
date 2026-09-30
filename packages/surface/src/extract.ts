@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import ts from "typescript";
-import type { Route } from "@trinker/core";
+import type { Route } from "@trinker_vul/core";
 
 export type Framework = "express" | "fastify" | "openapi" | "unknown";
 export type ReceiverKind = "app" | "router";

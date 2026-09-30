@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import {
   buildRequest, maskSecrets, redactHeaders,
   type BuiltRequest, type FindingDraft, type HttpResponse, type Oracle, type OracleContext,
-} from "@trinker/core";
+} from "@trinker_vul/core";
 
 const hash = (value: string): string => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 

@@ -1,5 +1,5 @@
 {
-  "name": "@trinker/vitest",
+  "name": "@trinker_vul/vitest",
   "version": "0.1.0",
   "description": "Assertions and Vitest/Jest matchers for running Trinker security scans inside your test suite.",
   "license": "MIT",
@@ -48,7 +48,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@trinker/core": "workspace:*"
+    "@trinker_vul/core": "workspace:*"
   },
   "peerDependencies": {
     "vitest": ">=2"

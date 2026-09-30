@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CompilerProvider, ProposalRequest } from "@trinker/compiler";
+import type { CompilerProvider, ProposalRequest } from "@trinker_vul/compiler";
 import { applyRecordedProposal, compileProject, llmCompileProject, loadPlan, runProject } from "../src/workflow.js";
 
 const dirs: string[] = [];

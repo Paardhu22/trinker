@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import {
   buildRequest, maskSecrets, redactHeaders,
   type BuiltRequest, type FindingDraft, type HttpResponse, type Oracle, type OracleContext,
-} from "@trinker/core";
+} from "@trinker_vul/core";
 
 interface ResponseFingerprint { status: number; bodyDigest: string; bodyShape: string; contentType: string; }
 

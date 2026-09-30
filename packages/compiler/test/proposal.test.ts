@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PlanSchema, type Plan } from "@trinker/core";
+import { PlanSchema, type Plan } from "@trinker_vul/core";
 import { applyProposal, BudgetExceededError, compileWithProvider, TokenBudget, type CompilerProvider } from "../src/index.js";
 
 const ROUTE_GET = "route_get_orders_11111111";

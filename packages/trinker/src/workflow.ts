@@ -6,10 +6,10 @@ import {
   BaselineSchema, PlanSchema, RuntimeConfigSchema, activeFindings, applyBaseline, calculateExecutionCoverage,
   calculatePlanCoverage, isScanComplete, runPlan,
   type Baseline, type Finding, type Plan, type RuntimeConfig, type ScanEvent, type ScanResult,
-} from "@trinker/core";
-import { differentialAuthorizationOracle, metamorphicResponseOracle, stateMutationOracle } from "@trinker/oracles";
-import { createReport, type SecurityReport, writeReport } from "@trinker/report";
-import { discoverSurface, ingestHar, ingestOpenApi, mergeSurfaces, type Surface } from "@trinker/surface";
+} from "@trinker_vul/core";
+import { differentialAuthorizationOracle, metamorphicResponseOracle, stateMutationOracle } from "@trinker_vul/oracles";
+import { createReport, type SecurityReport, writeReport } from "@trinker_vul/report";
+import { discoverSurface, ingestHar, ingestOpenApi, mergeSurfaces, type Surface } from "@trinker_vul/surface";
 
 /** Every oracle the runner can dispatch to. A check naming anything else is reported as unavailable. */
 export const ORACLES = [differentialAuthorizationOracle, stateMutationOracle, metamorphicResponseOracle];
@@ -326,7 +326,7 @@ export interface LlmCompileResult {
 /**
  * Compile with an LLM proposing checks.
  *
- * Explicitly opt-in, and reached from nowhere else: `@trinker/compiler` is loaded by dynamic
+ * Explicitly opt-in, and reached from nowhere else: `@trinker_vul/compiler` is loaded by dynamic
  * import so that `trinker run` never brings a provider into the process at all.
  *
  * The deterministic compile runs first, so the model reasons about a current surface and a plan
@@ -336,7 +336,7 @@ export interface LlmCompileResult {
  * artifact on the strength of a model's suggestion is exactly what this project exists to avoid.
  */
 export async function llmCompileProject(projectDir: string, options: LlmCompileOptions): Promise<LlmCompileResult> {
-  const { compileWithProvider, selectProvider } = await import("@trinker/compiler");
+  const { compileWithProvider, selectProvider } = await import("@trinker_vul/compiler");
 
   // Refresh the surface first, so the model reasons about current routes; this also preserves
   // everything a human authored.

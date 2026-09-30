@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exitCodeForScan, runPlan, type HttpClient, type HttpRequest, type Plan, type RuntimeConfig } from "@trinker/core";
+import { exitCodeForScan, runPlan, type HttpClient, type HttpRequest, type Plan, type RuntimeConfig } from "@trinker_vul/core";
 import { readPath, stateMutationOracle } from "../src/index.js";
 
 const READ = "route_get_orders_11111111";

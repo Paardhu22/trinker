@@ -1,5 +1,5 @@
 {
-  "name": "@trinker/oracles",
+  "name": "@trinker_vul/oracles",
   "version": "0.1.0",
   "description": "Trinker's deterministic oracles: differential authorization (BOLA), state mutation, and metamorphic response.",
   "license": "MIT",
@@ -43,7 +43,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@trinker/core": "workspace:*"
+    "@trinker_vul/core": "workspace:*"
   },
   "publishConfig": {
     "access": "public"

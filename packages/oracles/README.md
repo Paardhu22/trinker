@@ -1,4 +1,4 @@
-# @trinker/oracles
+# @trinker_vul/oracles
 
 The three deterministic oracles used by [Trinker](https://github.com/Paardhu22/trinker):
 

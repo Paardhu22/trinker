@@ -1,4 +1,4 @@
-# @trinker/surface
+# @trinker_vul/surface
 
 Attack-surface discovery for [Trinker](https://github.com/Paardhu22/trinker):
 

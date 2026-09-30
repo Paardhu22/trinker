@@ -8,21 +8,21 @@ plan deterministically. The runner contains no LLM provider and no network clien
 ```text
 trinker CLI / TUI
     |
-    +-- @trinker/surface   route extraction
-    +-- @trinker/oracles   deterministic oracle implementations
-    +-- @trinker/report    JSON / Markdown / SARIF
+    +-- @trinker_vul/surface   route extraction
+    +-- @trinker_vul/oracles   deterministic oracle implementations
+    +-- @trinker_vul/report    JSON / Markdown / SARIF
     |
-    +-------------------> @trinker/core
+    +-------------------> @trinker_vul/core
                           schemas, safety, bindings, runner, events, findings, coverage
                                 |
                                zod
 ```
 
-Dependencies point inward. `@trinker/core` imports only `zod` and Node builtins — it knows nothing
+Dependencies point inward. `@trinker_vul/core` imports only `zod` and Node builtins — it knows nothing
 about the terminal, the `.trinker/` directory layout, or the CLI. Every security decision lives in
 core or in an oracle.
 
-`@trinker/compiler` is the LLM boundary and is deliberately *not* a dependency of core, oracles,
+`@trinker_vul/compiler` is the LLM boundary and is deliberately *not* a dependency of core, oracles,
 report, or surface. That direction is what makes "a scan costs zero tokens" enforceable by the
 dependency graph rather than by convention. The CLI reaches it only through a dynamic import on the
 `compile --llm` path, so a scan never loads a model client at all;

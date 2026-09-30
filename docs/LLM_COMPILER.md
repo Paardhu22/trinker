@@ -170,7 +170,7 @@ rather than being quietly repaired into something that validates.
 
 ## Safety boundaries
 
-- `trinker run` is LLM-free. The CLI reaches `@trinker/compiler` only through a dynamic import, so
+- `trinker run` is LLM-free. The CLI reaches `@trinker_vul/compiler` only through a dynamic import, so
   a scan never loads a model client, and `packages/core/test/architecture.test.ts` fails if a static
   import appears or if a scan-path package gains a provider dependency.
 - A model can propose a check. Only an oracle can confirm a finding.

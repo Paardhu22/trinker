@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import type { Resource, Route } from "@trinker/core";
+import type { Resource, Route } from "@trinker_vul/core";
 import {
   extractFile, methodFrom, pathParameters, resolveRoutes, routeId,
   type Framework, type ResolvedMount,

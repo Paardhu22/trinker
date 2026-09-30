@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { PlanSchema, type Plan } from "@trinker/core";
+import { PlanSchema, type Plan } from "@trinker_vul/core";
 import {
   applyProposal, buildCompilerContext, COMPILER_PROMPT_VERSION, COMPILER_SYSTEM_PROMPT,
   createOpenAiProvider, DEFAULT_OPENAI_MODEL, normaliseOpenAiProposal, OPENAI_PLAN_PROPOSAL_SCHEMA,

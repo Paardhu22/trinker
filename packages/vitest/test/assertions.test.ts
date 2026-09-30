@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CheckOutcome, Finding, ScanResult } from "@trinker/core";
+import type { CheckOutcome, Finding, ScanResult } from "@trinker_vul/core";
 import {
   assertFindingIds, assertNoConfirmedFindings, assertNoFaults, assertScanComplete, assertSecure,
   describeScan, SecurityAssertionError, untestedOutcomes,

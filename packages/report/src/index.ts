@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import {
   activeFindings, calculateExecutionCoverage, hasFaults, isFault, isScanComplete,
   type CheckOutcome, type ExecutionCoverageSummary, type Finding, type Plan, type ScanResult,
-} from "@trinker/core";
+} from "@trinker_vul/core";
 
 export type ReportFormat = "json" | "markdown" | "sarif";
 export interface SecurityReport {

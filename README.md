@@ -26,7 +26,7 @@ replay it is printed in the report.
 - A replayable typed event stream, consumed identically by CI and the terminal console
 - JSON, Markdown, and SARIF reports that state whether the scan can be trusted
 - A keyboard-driven console with live scan progress and finding evidence
-- Assertions for running a scan inside your own test suite (`@trinker/vitest`)
+- Assertions for running a scan inside your own test suite (`@trinker_vul/vitest`)
 - An opt-in [LLM compiler](https://github.com/Paardhu22/trinker/blob/main/docs/LLM_COMPILER.md) (OpenAI or Anthropic) that proposes checks —
   validated deterministically before anything reaches a plan, and never involved in a scan
 - An end-to-end [OWASP Juice Shop evaluation](https://github.com/Paardhu22/trinker/blob/main/examples/juice-shop/README.md) that confirms a real
@@ -98,7 +98,7 @@ directly (`./node_modules/.bin/vitest run`).
 ### Running Trinker inside your own suite
 
 ```ts
-import { assertSecure } from "@trinker/vitest";
+import { assertSecure } from "@trinker_vul/vitest";
 
 it("has no authorization flaws", async () => {
   assertSecure(await scan());  // fails on a finding AND on a check that never ran
@@ -108,7 +108,7 @@ it("has no authorization flaws", async () => {
 `assertSecure` checks completeness before findings, because "no findings" from a scan that executed
 nothing is the failure this framework exists to prevent.
 
-Prefer matchers? `import "@trinker/vitest/setup"` registers `toBeSecure`, `toBeCompleteScan`,
+Prefer matchers? `import "@trinker_vul/vitest/setup"` registers `toBeSecure`, `toBeCompleteScan`,
 `toHaveNoConfirmedFindings`, and `toHaveFindingIds` with Vitest (types included); for Jest, call
 `expect.extend(trinkerMatchers)`.
 

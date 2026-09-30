@@ -1,6 +1,6 @@
-import type { CheckOutcome, Finding, RuntimeConfig } from "@trinker/core";
-import type { ExecutionCoverageSummary } from "@trinker/core";
-import type { SecurityReport } from "@trinker/report";
+import type { CheckOutcome, Finding, RuntimeConfig } from "@trinker_vul/core";
+import type { ExecutionCoverageSummary } from "@trinker_vul/core";
+import type { SecurityReport } from "@trinker_vul/report";
 import type { DashboardModel, RecordedProposal } from "../workflow.js";
 import type { ScanView } from "../scan-view.js";
 import { progressRatio, untestedCount } from "../scan-view.js";

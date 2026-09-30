@@ -34,12 +34,12 @@ async function sourceFiles(name: string): Promise<string[]> {
 const RUNTIME_PACKAGES = ["core", "oracles", "report", "surface"];
 
 describe("the scan path cannot reach an LLM", () => {
-  it.each(RUNTIME_PACKAGES)("%s does not depend on @trinker/compiler", async (name) => {
+  it.each(RUNTIME_PACKAGES)("%s does not depend on @trinker_vul/compiler", async (name) => {
     const dependencies = (await manifest(name)).dependencies ?? {};
-    expect(Object.keys(dependencies)).not.toContain("@trinker/compiler");
+    expect(Object.keys(dependencies)).not.toContain("@trinker_vul/compiler");
   });
 
-  it.each(RUNTIME_PACKAGES)("%s does not import @trinker/compiler", async (name) => {
+  it.each(RUNTIME_PACKAGES)("%s does not import @trinker_vul/compiler", async (name) => {
     for (const source of await sourceFiles(name)) {
       expect(source).not.toMatch(/@trinker\/compiler/);
     }
@@ -67,17 +67,17 @@ describe("the CLI reaches the compiler only on the LLM path", () => {
     return files;
   };
 
-  it("never imports @trinker/compiler statically", async () => {
+  it("never imports @trinker_vul/compiler statically", async () => {
     // A static import would pull the compiler — and its provider — into every `trinker run`.
     // The LLM path uses `await import(...)` so a scan never loads a model client at all.
     for (const [name, source] of await cliSources()) {
       const staticImport = /^\s*import\s[^;]*from\s+["']@trinker\/compiler["']/m;
-      expect(source, `${name} imports @trinker/compiler statically`).not.toMatch(staticImport);
+      expect(source, `${name} imports @trinker_vul/compiler statically`).not.toMatch(staticImport);
     }
   });
 
   it("carries no direct provider SDK dependency outside the compiler", async () => {
-    // Every provider SDK lives in @trinker/compiler, which the CLI loads only by dynamic import.
+    // Every provider SDK lives in @trinker_vul/compiler, which the CLI loads only by dynamic import.
     const dependencies = Object.keys((await manifest("trinker")).dependencies ?? {});
     for (const dependency of dependencies) {
       expect(dependency).not.toMatch(/^(openai|@openai\/)|anthropic|@ai-sdk|langchain|cohere|mistral|google-genai/i);

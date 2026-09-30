@@ -7,7 +7,7 @@ import { ProviderError, type CompilerProvider, type ProposalRequest, type Propos
  *
  * This is the only file in Trinker that talks to a model API. It is reachable from `compile --llm`
  * and from nowhere else: the packages that execute a scan neither depend on nor import
- * `@trinker/compiler`, and `packages/core/test/architecture.test.ts` fails if that ever changes.
+ * `@trinker_vul/compiler`, and `packages/core/test/architecture.test.ts` fails if that ever changes.
  *
  * The SDK is imported dynamically so that merely loading the compiler — which the CLI does for
  * every command — does not pull a network client into the process.

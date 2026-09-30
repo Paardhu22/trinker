@@ -49,11 +49,11 @@
     "prepack": "cp ../../README.md README.md"
   },
   "dependencies": {
-    "@trinker/compiler": "workspace:*",
-    "@trinker/core": "workspace:*",
-    "@trinker/oracles": "workspace:*",
-    "@trinker/report": "workspace:*",
-    "@trinker/surface": "workspace:*",
+    "@trinker_vul/compiler": "workspace:*",
+    "@trinker_vul/core": "workspace:*",
+    "@trinker_vul/oracles": "workspace:*",
+    "@trinker_vul/report": "workspace:*",
+    "@trinker_vul/surface": "workspace:*",
     "yaml": "^2.9.1"
   },
   "publishConfig": {

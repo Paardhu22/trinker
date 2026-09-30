@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ScanResult } from "@trinker/core";
+import type { ScanResult } from "@trinker_vul/core";
 import "../src/setup.js";
 
 const base = (overrides: Partial<ScanResult> = {}): ScanResult => ({

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { runPlan, type Finding, type HttpClient, type Oracle, type Plan, type RuntimeConfig, type ScanEvent } from "@trinker/core";
-import type { SecurityReport } from "@trinker/report";
+import { runPlan, type Finding, type HttpClient, type Oracle, type Plan, type RuntimeConfig, type ScanEvent } from "@trinker_vul/core";
+import type { SecurityReport } from "@trinker_vul/report";
 import { applyScanEvent, emptyScanView, type ScanView } from "../src/scan-view.js";
 import { stripAnsi } from "../src/tui/render.js";
 import {

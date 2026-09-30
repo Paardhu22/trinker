@@ -32,7 +32,7 @@ importers:
 
   packages/compiler:
     dependencies:
-      '@trinker/core':
+      '@trinker_vul/core':
         specifier: workspace:*
         version: link:../core
       zod:
@@ -54,19 +54,19 @@ importers:
 
   packages/oracles:
     dependencies:
-      '@trinker/core':
+      '@trinker_vul/core':
         specifier: workspace:*
         version: link:../core
 
   packages/report:
     dependencies:
-      '@trinker/core':
+      '@trinker_vul/core':
         specifier: workspace:*
         version: link:../core
 
   packages/surface:
     dependencies:
-      '@trinker/core':
+      '@trinker_vul/core':
         specifier: workspace:*
         version: link:../core
       typescript:
@@ -75,19 +75,19 @@ importers:
 
   packages/trinker:
     dependencies:
-      '@trinker/compiler':
+      '@trinker_vul/compiler':
         specifier: workspace:*
         version: link:../compiler
-      '@trinker/core':
+      '@trinker_vul/core':
         specifier: workspace:*
         version: link:../core
-      '@trinker/oracles':
+      '@trinker_vul/oracles':
         specifier: workspace:*
         version: link:../oracles
-      '@trinker/report':
+      '@trinker_vul/report':
         specifier: workspace:*
         version: link:../report
-      '@trinker/surface':
+      '@trinker_vul/surface':
         specifier: workspace:*
         version: link:../surface
       yaml:
@@ -96,7 +96,7 @@ importers:
 
   packages/vitest:
     dependencies:
-      '@trinker/core':
+      '@trinker_vul/core':
         specifier: workspace:*
         version: link:../core
       vitest:

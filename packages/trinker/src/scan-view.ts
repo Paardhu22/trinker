@@ -1,4 +1,4 @@
-import type { CheckStatus, ScanEvent } from "@trinker/core";
+import type { CheckStatus, ScanEvent } from "@trinker_vul/core";
 
 /**
  * A renderable view of a scan, derived purely from the typed event stream.

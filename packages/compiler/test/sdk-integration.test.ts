@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { PlanSchema, type Plan } from "@trinker/core";
+import { PlanSchema, type Plan } from "@trinker_vul/core";
 import { buildCompilerContext, compileWithProvider, createAnthropicProvider, ProviderError } from "../src/index.js";
 
 /**

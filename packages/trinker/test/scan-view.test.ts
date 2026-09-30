@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { runPlan, type HttpClient, type Oracle, type Plan, type RuntimeConfig, type ScanEvent } from "@trinker/core";
+import { runPlan, type HttpClient, type Oracle, type Plan, type RuntimeConfig, type ScanEvent } from "@trinker_vul/core";
 import { applyScanEvent, emptyScanView, progressRatio, untestedCount, type ScanView } from "../src/scan-view.js";
 
 let sequence = 0;

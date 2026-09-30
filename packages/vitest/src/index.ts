@@ -1,4 +1,4 @@
-import { activeFindings, type CheckOutcome, type Finding, type ScanResult } from "@trinker/core";
+import { activeFindings, type CheckOutcome, type Finding, type ScanResult } from "@trinker_vul/core";
 
 /**
  * Assertions for running a Trinker scan inside an existing test suite.
@@ -96,7 +96,7 @@ export function assertFindingIds(result: ScanResult, expected: readonly string[]
 
 /**
  * The assertions as matchers, for `expect.extend(trinkerMatchers)` in any Jest-compatible runner.
- * `import "@trinker/vitest/setup"` registers them with Vitest and adds the types.
+ * `import "@trinker_vul/vitest/setup"` registers them with Vitest and adds the types.
  */
 const asMatcher = <A extends unknown[]>(assertion: (result: ScanResult, ...args: A) => void, passed: string) =>
   function (this: { isNot?: boolean }, received: ScanResult, ...args: A): { pass: boolean; message: () => string } {
