@@ -19,6 +19,20 @@ source references. JSON and YAML are both accepted. YAML is parsed strictly — 
 parse warning refuse the file — because a misread specification would put endpoints that do not
 exist into a reviewed security plan.
 
+When the surface is neither in source nor in a specification, record it. Export a HAR file from
+your browser's devtools (Network → "Save all as HAR") or a proxy while exercising the application,
+then:
+
+```bash
+trinker compile --har traffic.har
+```
+
+Only requests to the plan's target origin (from `runtime.json`) are kept; third-party calls,
+static assets, and CORS preflights are dropped. Value-like path segments — numbers, UUIDs, long
+tokens — become parameters, so `/rest/basket/6` becomes `/rest/basket/:id`, and observed query
+names are recorded. These routes are `medium` confidence and carry a `crawler` source reference:
+traffic proves an endpoint answers, not that its template was inferred correctly, so review them.
+
 ## The two files
 
 `.trinker/plan.json` is committed and reviewed. It holds routes, identities, fixtures, invariants,

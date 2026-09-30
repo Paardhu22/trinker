@@ -60,6 +60,64 @@ export function ingestOpenApi(document: unknown, source = "openapi"): Surface {
   return normaliseSurface(routes, ["openapi"]);
 }
 
+/** A path segment that is a value rather than a name: a number, a UUID, or a long hex/opaque token. */
+const isValueSegment = (segment: string): boolean =>
+  /^\d+$/.test(segment)
+  || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segment)
+  || /^[0-9a-f]{16,}$/i.test(segment)
+  || (segment.length >= 20 && /^[A-Za-z0-9_-]+$/.test(segment) && /\d/.test(segment));
+
+const STATIC_ASSET = /\.(?:js|mjs|css|map|html?|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|eot|txt|xml|webmanifest)$/i;
+
+/**
+ * Turn recorded traffic (a HAR file, as exported by any browser's devtools or a proxy) into routes.
+ *
+ * Only requests to `origin` are kept, so third-party calls in the same recording never enter the
+ * plan. Value-like path segments become parameters (`/api/orders/42` → `/api/orders/:id`), and
+ * observed query names are recorded. Routes are `medium` confidence: traffic proves an endpoint
+ * answers, not that its template was inferred correctly.
+ */
+export function ingestHar(document: unknown, origin: string, source = "har"): Surface {
+  const entries = (document as { log?: { entries?: Array<{ request?: { method?: string; url?: string } }> } }).log?.entries;
+  if (!Array.isArray(entries)) throw new Error(`${source} is not a HAR document: it has no log.entries array`);
+  const wanted = new URL(origin).origin;
+
+  const observed = new Map<string, { method: Route["method"]; path: string; query: Set<string>; count: number }>();
+  for (const entry of entries) {
+    const method = methodFrom(entry.request?.method ?? "");
+    const rawUrl = entry.request?.url;
+    // Preflights and HEADs say nothing about an endpoint's behaviour.
+    if (!method || method === "OPTIONS" || method === "HEAD" || typeof rawUrl !== "string") continue;
+    let url: URL;
+    try { url = new URL(rawUrl); } catch { continue; }
+    if (url.origin !== wanted || STATIC_ASSET.test(url.pathname)) continue;
+
+    let parameter = 0;
+    const path = url.pathname.split("/").map((segment) => {
+      if (!isValueSegment(segment)) return segment;
+      parameter++;
+      return parameter === 1 ? ":id" : `:id${parameter}`;
+    }).join("/") || "/";
+
+    const key = `${method} ${path}`;
+    const item = observed.get(key) ?? { method, path, query: new Set<string>(), count: 0 };
+    for (const name of url.searchParams.keys()) item.query.add(name);
+    item.count++;
+    observed.set(key, item);
+  }
+
+  const routes: Route[] = [...observed.values()].map((item) => ({
+    id: routeId(item.method, item.path), method: item.method, pathTemplate: item.path,
+    parameters: [
+      ...pathParameters(item.path),
+      ...[...item.query].sort().map((name) => ({ name, location: "query" as const, required: false })),
+    ],
+    sourceRefs: [{ kind: "crawler" as const, path: source, note: `observed ${item.count} time(s) in recorded traffic` }],
+    confidence: "medium" as const,
+  }));
+  return normaliseSurface(routes, ["unknown"]);
+}
+
 /**
  * Combine surfaces from different inputs — extracted source plus an OpenAPI document, say.
  *

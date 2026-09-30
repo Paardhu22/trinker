@@ -287,3 +287,24 @@ describe("target selection", () => {
     expect(() => selectTarget(multi, "production")).toThrow(/not in this plan's allowedTargetRefs/);
   });
 });
+
+describe("compiling from recorded traffic", () => {
+  it("adds the target's routes from a HAR and ignores other origins", async () => {
+    const project = await newProject();
+    await compileProject(project);
+    const har = { log: { entries: [
+      { request: { method: "GET", url: "http://localhost:3000/rest/basket/7" } },
+      { request: { method: "GET", url: "https://analytics.example.com/collect/123" } },
+    ] } };
+    await writeFile(join(project, "traffic.har"), JSON.stringify(har));
+    const { plan } = await compileProject(project, { harPath: join(project, "traffic.har") });
+    expect(plan.surface.routes.map((route) => route.pathTemplate)).toEqual(["/rest/basket/:id"]);
+    expect(plan.provenance.sources).toContainEqual({ kind: "crawler", path: join(project, "traffic.har") });
+  });
+
+  it("refuses a recording with nothing for the target", async () => {
+    const project = await newProject();
+    await writeFile(join(project, "traffic.har"), JSON.stringify({ log: { entries: [{ request: { method: "GET", url: "https://elsewhere.example/api/1" } }] } }));
+    await expect(compileProject(project, { harPath: join(project, "traffic.har") })).rejects.toThrow(/no API requests to http:\/\/localhost:3000/);
+  });
+});

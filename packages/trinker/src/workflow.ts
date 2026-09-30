@@ -9,7 +9,7 @@ import {
 } from "@trinker/core";
 import { differentialAuthorizationOracle, metamorphicResponseOracle, stateMutationOracle } from "@trinker/oracles";
 import { createReport, type SecurityReport, writeReport } from "@trinker/report";
-import { discoverSurface, ingestOpenApi, mergeSurfaces, type Surface } from "@trinker/surface";
+import { discoverSurface, ingestHar, ingestOpenApi, mergeSurfaces, type Surface } from "@trinker/surface";
 
 /** Every oracle the runner can dispatch to. A check naming anything else is reported as unavailable. */
 export const ORACLES = [differentialAuthorizationOracle, stateMutationOracle, metamorphicResponseOracle];
@@ -44,6 +44,8 @@ export interface CompileOptions {
   force?: boolean;
   /** Path to an OpenAPI document whose paths are merged with the extracted routes. */
   openApiPath?: string;
+  /** Path to recorded traffic (HAR) whose requests to the target are merged as routes. */
+  harPath?: string;
 }
 
 export interface CompileResult {
@@ -66,9 +68,10 @@ export async function compileProject(projectDir: string, options: CompileOptions
   await initialiseProject(projectDir);
   const extracted = await discoverSurface({ rootDir: projectDir });
   const specification = options.openApiPath === undefined ? undefined : await readOpenApi(options.openApiPath);
-  const surface = specification ? mergeSurfaces(extracted, specification.surface) : extracted;
-
   const existing = options.force === true ? undefined : await loadPlanIfPresent(projectDir);
+  const recorded = options.harPath === undefined ? undefined : await readHar(projectDir, options.harPath, existing?.target.allowedTargetRefs[0] ?? "local");
+  const surface = mergeSurfaces(extracted, ...(specification ? [specification.surface] : []), ...(recorded ? [recorded] : []));
+
   const previousRouteIds = new Set(existing?.surface.routes.map((route) => route.id) ?? []);
   const currentRouteIds = new Set(surface.routes.map((route) => route.id));
 
@@ -91,6 +94,7 @@ export async function compileProject(projectDir: string, options: CompileOptions
       sources: [
         { kind: "ast" as const, path: "." },
         ...(specification ? [{ kind: "openapi" as const, path: specification.source }] : []),
+        ...(options.harPath !== undefined ? [{ kind: "crawler" as const, path: options.harPath }] : []),
       ],
       compiler: { mode: "deterministic" as const, compilerVersion: "0.1.0" },
     },
@@ -114,6 +118,26 @@ export async function compileProject(projectDir: string, options: CompileOptions
     addedRouteIds: [...currentRouteIds].filter((id) => !previousRouteIds.has(id)).sort(),
     removedRouteIds: [...previousRouteIds].filter((id) => !currentRouteIds.has(id)).sort(),
   };
+}
+
+/**
+ * Read recorded traffic, keeping only requests to the plan's own target.
+ *
+ * The origin comes from runtime.json rather than from the recording, so a HAR full of third-party
+ * calls cannot put someone else's API into the plan.
+ */
+async function readHar(projectDir: string, path: string, targetRef: string): Promise<Surface> {
+  let document: unknown;
+  try {
+    document = JSON.parse(await readFile(path, "utf8"));
+  } catch (error) {
+    throw new Error(`Could not read ${path} as a HAR file: ${error instanceof Error ? error.message : "unreadable"}`);
+  }
+  const target = (await loadRuntime(projectDir)).targets[targetRef];
+  if (!target) throw new Error(`Runtime configuration has no target named "${targetRef}", so recorded traffic cannot be scoped to it.`);
+  const surface = ingestHar(document, target.url, path);
+  if (surface.routes.length === 0) throw new Error(`${path} contains no API requests to ${new URL(target.url).origin}.`);
+  return surface;
 }
 
 /**

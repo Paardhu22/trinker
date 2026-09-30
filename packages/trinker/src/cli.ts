@@ -30,6 +30,7 @@ const USAGE = `trinker - deterministic application security testing
   trinker compile [options]     extract routes into .trinker/plan.json
       --force                   discard authored checks and regenerate
       --openapi <file>          also ingest an OpenAPI document (JSON or YAML)
+      --har <file.har>          also ingest recorded traffic to the target (browser/proxy HAR)
       --llm                     ALSO ask a model to propose checks (opt-in, costs tokens)
       --provider <name>         openai (default) or anthropic
       --token-budget <n>        max tokens one LLM compilation may spend (default 60000)
@@ -202,9 +203,11 @@ async function main(): Promise<void> {
     if (args.includes("--apply-proposal")) { await applyProposalFile(); return; }
     if (args.includes("--llm")) { await compileWithLlm(openApiPath); return; }
 
+    const harPath = stringFlag("--har");
     const { plan, merged, addedRouteIds, removedRouteIds } = await compileProject(projectDir, {
       force: args.includes("--force"),
       ...(openApiPath !== undefined ? { openApiPath } : {}),
+      ...(harPath !== undefined ? { harPath } : {}),
     });
     write(`Compiled ${plan.surface.routes.length} routes to .trinker/plan.json (${plan.planId}). Runtime LLM tokens: 0`);
     if (merged) {
