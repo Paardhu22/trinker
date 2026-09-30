@@ -98,6 +98,9 @@ importers:
       '@trinker/core':
         specifier: workspace:*
         version: link:../core
+      vitest:
+        specifier: '>=2'
+        version: 3.2.7(@types/node@22.20.2)(yaml@2.9.1)
 
 packages:
 

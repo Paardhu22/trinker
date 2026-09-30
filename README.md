@@ -84,8 +84,9 @@ authorized to test.
 ## Development
 
 ```bash
-pnpm test        # 370 tests
+pnpm test
 pnpm typecheck
+pnpm lint
 pnpm build
 ```
 
@@ -104,6 +105,14 @@ it("has no authorization flaws", async () => {
 
 `assertSecure` checks completeness before findings, because "no findings" from a scan that executed
 nothing is the failure this framework exists to prevent.
+
+Prefer matchers? `import "@trinker/vitest/setup"` registers `toBeSecure`, `toBeCompleteScan`,
+`toHaveNoConfirmedFindings`, and `toHaveFindingIds` with Vitest (types included); for Jest, call
+`expect.extend(trinkerMatchers)`.
+
+```ts
+expect(await scan()).toBeSecure();
+```
 
 ## Documentation
 

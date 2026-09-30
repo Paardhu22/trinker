@@ -93,3 +93,25 @@ export function assertFindingIds(result: ScanResult, expected: readonly string[]
     `Expected findings [${wanted.join(", ") || "none"}] but got [${actual.join(", ") || "none"}].\n${describeScan(result)}`,
   );
 }
+
+/**
+ * The assertions as matchers, for `expect.extend(trinkerMatchers)` in any Jest-compatible runner.
+ * `import "@trinker/vitest/setup"` registers them with Vitest and adds the types.
+ */
+const asMatcher = <A extends unknown[]>(assertion: (result: ScanResult, ...args: A) => void, passed: string) =>
+  function (this: { isNot?: boolean }, received: ScanResult, ...args: A): { pass: boolean; message: () => string } {
+    try {
+      assertion(received, ...args);
+      return { pass: true, message: () => `${passed}\n${describeScan(received)}` };
+    } catch (error) {
+      if (!(error instanceof SecurityAssertionError)) throw error;
+      return { pass: false, message: () => error.message };
+    }
+  };
+
+export const trinkerMatchers = {
+  toBeSecure: asMatcher(assertSecure, "Expected the scan not to be secure, but every check ran and nothing was confirmed."),
+  toBeCompleteScan: asMatcher(assertScanComplete, "Expected an incomplete scan, but every check reached a verdict."),
+  toHaveNoConfirmedFindings: asMatcher(assertNoConfirmedFindings, "Expected confirmed findings, but there were none."),
+  toHaveFindingIds: asMatcher(assertFindingIds, "Expected a different set of findings."),
+};
