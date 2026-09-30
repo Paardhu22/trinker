@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  exitCodeForScan, isScanComplete, runPlan,
+  applyBaseline, exitCodeForScan, isScanComplete, runPlan,
   type FindingDraft, type HttpClient, type HttpRequest, type HttpResponse, type Oracle, type ScanEvent,
 } from "../src/index.js";
 import { ROUTE_GET, authCheck, makePlan, makeRuntime } from "./fixtures.js";
@@ -197,5 +197,22 @@ describe("runner: severity and evidence policy", () => {
       oracles: [oracleReturning({ status: "failed", finding: withBody })], http: client(),
     }).result;
     expect(result.findings[0]?.evidence.responses[0]).toEqual({ status: 200, headers: {}, bodyDigest: "sha256:x" });
+  });
+});
+
+describe("baseline: accepted findings", () => {
+  it("labels an accepted finding and stops it failing the scan", async () => {
+    const result = await run([oracleReturning({ status: "failed", finding: draft() })]);
+    expect(exitCodeForScan(result)).toBe(1);
+    const accepted = applyBaseline(result, { version: 1, accepted: [{ checkId: "chk_order_auth", reason: "Admin-only tool; tracked in SEC-12" }] });
+    expect(accepted.findings[0]?.accepted).toEqual({ reason: "Admin-only tool; tracked in SEC-12" });
+    expect(exitCodeForScan(accepted)).toBe(0);
+  });
+
+  it("leaves findings from other checks active", async () => {
+    const result = await run([oracleReturning({ status: "failed", finding: draft() })]);
+    const other = applyBaseline(result, { version: 1, accepted: [{ checkId: "chk_something_else", reason: "n/a" }] });
+    expect(other.findings[0]?.accepted).toBeUndefined();
+    expect(exitCodeForScan(other)).toBe(1);
   });
 });

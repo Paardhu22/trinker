@@ -210,6 +210,19 @@ scan could not be trusted (a check errored or had no oracle).
 
 A scan consumes no LLM tokens.
 
+## Accepting a known risk
+
+A finding you have reviewed and decided to live with can be accepted:
+
+```bash
+trinker accept TRK-0003 --reason "Internal admin tool; tracked in SEC-12"
+```
+
+This writes the finding's *check* to `.trinker/baseline.json` (commit it; the acceptance is a
+reviewed decision like the plan). Later scans still report the finding, labelled
+`ACCEPTED RISK` with the reason and as a SARIF suppression, but it no longer makes the run exit 1.
+Delete the entry to un-accept it. Replays via `trinker verify` ignore the baseline.
+
 ## Checks that do not run
 
 `browser-execution` and `out-of-band` are valid in the schema but have no implementation. A check

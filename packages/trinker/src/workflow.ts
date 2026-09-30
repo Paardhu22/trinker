@@ -2,9 +2,9 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  PlanSchema, RuntimeConfigSchema, calculateExecutionCoverage, calculatePlanCoverage,
-  isScanComplete, runPlan,
-  type Finding, type Plan, type RuntimeConfig, type ScanEvent, type ScanResult,
+  BaselineSchema, PlanSchema, RuntimeConfigSchema, activeFindings, applyBaseline, calculateExecutionCoverage,
+  calculatePlanCoverage, isScanComplete, runPlan,
+  type Baseline, type Finding, type Plan, type RuntimeConfig, type ScanEvent, type ScanResult,
 } from "@trinker/core";
 import { differentialAuthorizationOracle, metamorphicResponseOracle, stateMutationOracle } from "@trinker/oracles";
 import { createReport, type SecurityReport, writeReport } from "@trinker/report";
@@ -18,6 +18,7 @@ const proposalPath = (projectDir: string) => join(trinkerDir(projectDir), "propo
 const planPath = (projectDir: string) => join(trinkerDir(projectDir), "plan.json");
 const runtimePath = (projectDir: string) => join(trinkerDir(projectDir), "runtime.json");
 const latestPath = (projectDir: string) => join(trinkerDir(projectDir), "latest-report.json");
+const baselinePath = (projectDir: string) => join(trinkerDir(projectDir), "baseline.json");
 
 const DEFAULT_RUNTIME = {
   targets: { local: { url: "http://localhost:3000", allowHosts: [] } },
@@ -230,7 +231,7 @@ export async function loadDashboard(projectDir: string): Promise<DashboardModel>
     untested: result.checks.inconclusive + result.checks.errored + result.checks.unavailable,
     runtimeTokens: result.tokens.runtimeInput + result.tokens.runtimeOutput,
     verifiedPercent: report.coverage.verifiedPercent,
-    status: result.findings.length > 0 ? "findings" : isScanComplete(result) ? "clean" : "incomplete",
+    status: activeFindings(result).length > 0 ? "findings" : isScanComplete(result) ? "clean" : "incomplete",
     recentFindings: result.findings.map((finding) => {
       const route = routeById.get(finding.routeId);
       return {
@@ -484,7 +485,8 @@ export async function runProject(projectDir: string, onEvent?: (event: ScanEvent
   const runtime = await loadRuntime(projectDir);
   // The listener is handed to runPlan rather than attached afterwards, so the very first event is observed.
   const handle = runPlan({ plan, runtime, oracles: ORACLES, ...(onEvent ? { onEvent } : {}) });
-  const result = await handle.result;
+  const baseline = await loadBaseline(projectDir);
+  const result = baseline ? applyBaseline(await handle.result, baseline) : await handle.result;
   const report = createReport(plan, result);
   await mkdir(trinkerDir(projectDir), { recursive: true });
   await writeFile(latestPath(projectDir), `${JSON.stringify(report, null, 2)}\n`, "utf8");
@@ -517,6 +519,34 @@ export async function verifyFinding(projectDir: string, findingId: string, onEve
   };
   const replay = describeReplay(original.id, result);
   return { result, report: createReport(narrowed, result), plan: narrowed, reproduced: findings.length > 0, ...replay };
+}
+
+/** The committed baseline of risk-accepted checks, or undefined when there is none. */
+export async function loadBaseline(projectDir: string): Promise<Baseline | undefined> {
+  let raw: string;
+  try { raw = await readFile(baselinePath(projectDir), "utf8"); } catch { return undefined; }
+  const parsed = BaselineSchema.safeParse(JSON.parse(raw));
+  if (!parsed.success) throw new Error(describeIssues(".trinker/baseline.json", parsed.error.issues));
+  return parsed.data;
+}
+
+/**
+ * Accept the check behind a finding into `.trinker/baseline.json`.
+ *
+ * A reason is required: an acceptance nobody can explain in review is a suppression, not a
+ * decision. The finding keeps being reported; it only stops failing the scan.
+ */
+export async function acceptFinding(projectDir: string, findingId: string, reason: string): Promise<{ checkId: string; path: string }> {
+  if (reason.trim() === "") throw new Error("Accepting a finding needs a reason: trinker accept <finding-id> --reason \"...\"");
+  const latest = await loadLatestReport(projectDir);
+  const finding = latest.result.findings.find((candidate) => candidate.id === findingId);
+  if (!finding) throw new Error(`Finding ${findingId} is not present in the latest report. Run \`trinker report\` to list findings.`);
+  const baseline = (await loadBaseline(projectDir)) ?? { version: 1 as const, accepted: [] };
+  const checkId = finding.replay.checkId;
+  baseline.accepted = [...baseline.accepted.filter((entry) => entry.checkId !== checkId), { checkId, reason: reason.trim() }]
+    .sort((a, b) => a.checkId.localeCompare(b.checkId));
+  await writeFile(baselinePath(projectDir), `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
+  return { checkId, path: baselinePath(projectDir) };
 }
 
 export async function loadLatestReport(projectDir: string): Promise<SecurityReport> {

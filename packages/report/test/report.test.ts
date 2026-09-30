@@ -163,3 +163,16 @@ describe("SARIF surfaces every check that produced no verdict", () => {
     expect(sarif.runs[0].results.every((r: { ruleId: string }) => r.ruleId !== "TRK-UNTESTED")).toBe(true);
   });
 });
+
+describe("accepted findings", () => {
+  const accepted = result({ findings: [{ ...finding, accepted: { reason: "Tracked in SEC-12" } }] });
+  it("labels the finding in markdown and the trust summary", () => {
+    const markdown = renderReport(report(accepted), "markdown");
+    expect(markdown).toContain("ACCEPTED RISK: Tracked in SEC-12");
+    expect(trustSummary(accepted)).toMatch(/1 accepted in the baseline/);
+  });
+  it("emits a SARIF suppression so code-scanning UIs hide it", () => {
+    const sarif = JSON.parse(renderReport(report(accepted), "sarif"));
+    expect(sarif.runs[0].results[0].suppressions).toEqual([{ kind: "external", justification: "Tracked in SEC-12" }]);
+  });
+});

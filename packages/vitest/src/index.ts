@@ -1,4 +1,4 @@
-import type { CheckOutcome, Finding, ScanResult } from "@trinker/core";
+import { activeFindings, type CheckOutcome, type Finding, type ScanResult } from "@trinker/core";
 
 /**
  * Assertions for running a Trinker scan inside an existing test suite.
@@ -35,12 +35,13 @@ export function describeScan(result: ScanResult): string {
   return `${planned} planned: ${passed} passed, ${failed} failed, ${inconclusive} inconclusive, ${errored} errored, ${unavailable} unavailable`;
 }
 
-/** Fails if the scan mechanically confirmed any violation. */
+/** Fails if the scan mechanically confirmed any violation that is not accepted in a baseline. */
 export function assertNoConfirmedFindings(result: ScanResult): void {
-  if (result.findings.length === 0) return;
+  const findings = activeFindings(result);
+  if (findings.length === 0) return;
   throw new SecurityAssertionError(
-    `Trinker confirmed ${plural(result.findings.length, "security finding")}:\n\n` +
-    `${result.findings.map(describeFinding).join("\n\n")}\n`,
+    `Trinker confirmed ${plural(findings.length, "security finding")}:\n\n` +
+    `${findings.map(describeFinding).join("\n\n")}\n`,
   );
 }
 

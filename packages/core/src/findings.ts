@@ -21,8 +21,37 @@ export const FindingSchema = z.object({
   evidence: z.object({ requests: z.array(WitnessRequestSchema), responses: z.array(WitnessResponseSchema), notes: z.array(z.string()) }).strict(),
   replay: z.object({ command: z.string(), checkId: z.string() }).strict(),
   remediation: z.string(),
+  /** Set when the check behind this finding is in the baseline: a known, risk-accepted violation. */
+  accepted: z.object({ reason: z.string().min(1) }).strict().optional(),
 }).strict();
 export type Finding = z.infer<typeof FindingSchema>;
+
+/**
+ * `.trinker/baseline.json`: violations a human has reviewed and accepted.
+ *
+ * Keyed by check, not by finding id, because finding ids are assigned per scan. An accepted finding
+ * is still reported, labelled with the reason; it only stops failing the build.
+ */
+export const BaselineSchema = z.object({
+  version: z.literal(1),
+  accepted: z.array(z.object({ checkId: z.string().regex(/^chk_[a-z0-9_]+$/), reason: z.string().min(1) }).strict()),
+}).strict();
+export type Baseline = z.infer<typeof BaselineSchema>;
+
+/** Mark every finding whose check is in the baseline as accepted. */
+export function applyBaseline(result: ScanResult, baseline: Baseline): ScanResult {
+  const reasons = new Map(baseline.accepted.map((entry) => [entry.checkId, entry.reason]));
+  return {
+    ...result,
+    findings: result.findings.map((finding) => {
+      const reason = reasons.get(finding.replay.checkId);
+      return reason === undefined ? finding : { ...finding, accepted: { reason } };
+    }),
+  };
+}
+
+/** Findings that have not been risk-accepted. These, and only these, fail a scan. */
+export const activeFindings = (result: ScanResult): Finding[] => result.findings.filter((finding) => finding.accepted === undefined);
 
 /**
  * What an oracle returns when it confirms a violation.
@@ -32,7 +61,7 @@ export type Finding = z.infer<typeof FindingSchema>;
  * "report tells you to run a command that does not exist" class of bug unrepresentable: only the
  * runner, which owns the id, can produce a `Finding`.
  */
-export type FindingDraft = Omit<Finding, "id" | "replay"> & { replay: { checkId: string } };
+export type FindingDraft = Omit<Finding, "id" | "replay" | "accepted"> & { replay: { checkId: string } };
 
 /**
  * The outcome of a single planned check.
@@ -107,7 +136,7 @@ export const hasFaults = (result: ScanResult): boolean => result.checks.errored 
  * CI exit-code policy.
  *
  * 0  every planned check reached a verdict and none confirmed a violation
- * 1  at least one violation was mechanically confirmed
+ * 1  at least one violation was mechanically confirmed and is not in the baseline
  * 3  the scan could not be trusted: a check errored or had no oracle (and, under `strict`, was
  *    inconclusive). Distinct from 1 so a broken pipeline is never mistaken for a vulnerability,
  *    and distinct from 0 so a scan that tested nothing cannot report success.
@@ -118,7 +147,7 @@ export const hasFaults = (result: ScanResult): boolean => result.checks.errored 
 export type ScanExitCode = 0 | 1 | 3;
 
 export function exitCodeForScan(result: ScanResult, options: { strict?: boolean } = {}): ScanExitCode {
-  if (result.findings.length > 0) return 1;
+  if (activeFindings(result).length > 0) return 1;
   if (hasFaults(result)) return 3;
   if (options.strict === true && result.checks.inconclusive > 0) return 3;
   return 0;

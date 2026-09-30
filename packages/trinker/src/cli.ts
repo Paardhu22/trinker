@@ -4,7 +4,7 @@ import { exitCodeForScan, type ScanEvent } from "@trinker/core";
 import { renderReport, trustSummary, type ReportFormat } from "@trinker/report";
 import { launchTui } from "./tui/app.js";
 import {
-  applyRecordedProposal, compileProject, coverageForProject, executionCoverageForProject,
+  acceptFinding, applyRecordedProposal, compileProject, coverageForProject, executionCoverageForProject,
   exportLatestReport, initialiseProject, llmCompileProject, runProject, verifyFinding,
 } from "./workflow.js";
 
@@ -41,6 +41,9 @@ const USAGE = `trinker - deterministic application security testing
   trinker verify <finding-id>   replay the check behind a confirmed finding
                                 exits 1 if it reproduces, 3 if it cannot be re-tested
   trinker report [--json|--sarif|--markdown]
+  trinker accept <finding-id> --reason "<why>"
+                                record a reviewed risk in .trinker/baseline.json; the
+                                finding is still reported but no longer exits 1
 
 run options:
   --ci                  non-interactive; print the report to stdout
@@ -51,7 +54,7 @@ run options:
 
 exit codes:
   0  every planned check reached a verdict, nothing confirmed
-  1  a violation was mechanically confirmed
+  1  a violation was mechanically confirmed (and is not accepted in the baseline)
   2  usage or configuration error
   3  the scan could not be trusted (a check errored or had no oracle)`;
 
@@ -248,6 +251,16 @@ async function main(): Promise<void> {
     // A replay asks a direct question, so an inconclusive answer is a failure to answer it, not a
     // clean result. `strict` makes that exit 3 rather than 0.
     process.exitCode = exitCodeForScan(report.result, { strict: true });
+    return;
+  }
+
+  if (command === "accept") {
+    const findingId = args[0];
+    const reasonIndex = args.indexOf("--reason");
+    const reason = reasonIndex >= 0 ? args[reasonIndex + 1] : undefined;
+    if (!findingId || findingId.startsWith("--") || reason === undefined) throw new Error('Usage: trinker accept <finding-id> --reason "<why>"');
+    const { checkId, path } = await acceptFinding(projectDir, findingId, reason);
+    write(`Accepted ${checkId} (${findingId}) in ${path}. Commit it so the acceptance is reviewed.`);
     return;
   }
 

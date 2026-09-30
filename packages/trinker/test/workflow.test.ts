@@ -1,9 +1,9 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ScanResult } from "@trinker/core";
-import { compileProject, describeReplay, loadPlan } from "../src/workflow.js";
+import { acceptFinding, compileProject, describeReplay, loadBaseline, loadPlan } from "../src/workflow.js";
 
 const projects: string[] = [];
 const newProject = async (): Promise<string> => {
@@ -235,5 +235,34 @@ describe("describeReplay", () => {
 
   it("reports an empty replay as untestable", () => {
     expect(describeReplay("TRK-0007", base()).verdict).toBe("untestable");
+  });
+});
+
+describe("accepting a finding", () => {
+  const seedReport = async (project: string): Promise<void> => {
+    const finding = {
+      id: "TRK-0001", status: "confirmed", title: "BOLA", severity: "high", invariant: "x", routeId: "route_x",
+      oracle: "Differential Authorization", verdict: "v", evidence: { requests: [], responses: [], notes: [] },
+      replay: { command: "trinker verify TRK-0001", checkId: "chk_auth" }, remediation: "r",
+    };
+    await mkdir(join(project, ".trinker"), { recursive: true });
+    await writeFile(join(project, ".trinker", "latest-report.json"), JSON.stringify({ result: { findings: [finding] } }));
+  };
+
+  it("records the check with its reason in the baseline", async () => {
+    const project = await newProject();
+    await seedReport(project);
+    const { checkId } = await acceptFinding(project, "TRK-0001", "Internal admin route, SEC-12");
+    expect(checkId).toBe("chk_auth");
+    expect(await loadBaseline(project)).toEqual({ version: 1, accepted: [{ checkId: "chk_auth", reason: "Internal admin route, SEC-12" }] });
+    // Accepting again replaces the entry rather than duplicating it.
+    await acceptFinding(project, "TRK-0001", "Revised");
+    expect((await loadBaseline(project))?.accepted).toEqual([{ checkId: "chk_auth", reason: "Revised" }]);
+  });
+
+  it("refuses an acceptance without a reason", async () => {
+    const project = await newProject();
+    await seedReport(project);
+    await expect(acceptFinding(project, "TRK-0001", "  ")).rejects.toThrow(/needs a reason/);
   });
 });

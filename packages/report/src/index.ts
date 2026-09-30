@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
-  calculateExecutionCoverage, hasFaults, isFault, isScanComplete,
+  activeFindings, calculateExecutionCoverage, hasFaults, isFault, isScanComplete,
   type CheckOutcome, type ExecutionCoverageSummary, type Finding, type Plan, type ScanResult,
 } from "@trinker/core";
 
@@ -44,10 +44,12 @@ export async function writeReport(projectDir: string, report: SecurityReport, fo
 export function trustSummary(result: ScanResult): string {
   const { inconclusive, errored, unavailable } = result.checks;
   const untested = inconclusive + errored + unavailable;
+  const accepted = result.findings.length - activeFindings(result).length;
+  const acceptedNote = accepted > 0 ? ` (${accepted} accepted in the baseline)` : "";
   if (untested === 0) {
     return result.findings.length === 0
       ? "COMPLETE - every planned check produced a verdict and no violation was confirmed."
-      : `COMPLETE - every planned check produced a verdict; ${result.findings.length} violation(s) confirmed.`;
+      : `COMPLETE - every planned check produced a verdict; ${result.findings.length} violation(s) confirmed${acceptedNote}.`;
   }
   const was = (count: number): string => (count === 1 ? "was" : "were");
   const parts = [
@@ -68,7 +70,7 @@ function toMarkdown(report: SecurityReport): string {
     `Runtime LLM tokens: ${result.tokens.runtimeInput + result.tokens.runtimeOutput}`, "",
     `> **Scan status:** ${trustSummary(result)}`, "",
     "## Summary", "",
-    `- Confirmed findings: ${result.findings.length}`,
+    `- Confirmed findings: ${result.findings.length}${result.findings.length > activeFindings(result).length ? ` (${result.findings.length - activeFindings(result).length} accepted risk)` : ""}`,
     `- Checks: ${result.checks.passed} passed, ${result.checks.failed} failed, ${result.checks.inconclusive} inconclusive, ${result.checks.errored} errored, ${result.checks.unavailable} unavailable (of ${result.checks.planned} planned)`,
     `- Severity: ${counts.critical} critical, ${counts.high} high, ${counts.medium} medium, ${counts.low} low`,
     `- Route coverage: ${coverage.coveredRoutes}/${coverage.inScopeRoutes} planned (${coverage.percent.toFixed(1)}%), ${coverage.verifiedRoutes}/${coverage.inScopeRoutes} verified (${coverage.verifiedPercent.toFixed(1)}%)`,
@@ -96,7 +98,7 @@ const escapeCell = (value: string): string => value.replace(/\|/g, "\\|").replac
 function findingMarkdown(finding: Finding): string[] {
   const lines = [
     `## ${finding.id} - ${finding.severity.toUpperCase()} - ${finding.title}`, "",
-    `**Status:** ${finding.status.toUpperCase()}`, "",
+    `**Status:** ${finding.status.toUpperCase()}${finding.accepted ? ` - ACCEPTED RISK: ${finding.accepted.reason}` : ""}`, "",
     `**Route:** \`${finding.routeId}\``, "",
     `**Invariant:** ${finding.invariant}`, "",
     `**Oracle:** ${finding.oracle}`, "",
@@ -157,6 +159,8 @@ function toSarif(report: SecurityReport): Record<string, unknown> {
           ruleId: finding.id, level: sarifLevel(finding.severity),
           message: { text: `${finding.verdict} Replay: ${finding.replay.command}` },
           properties: { oracle: finding.oracle, invariant: finding.invariant, status: finding.status, routeId: finding.routeId },
+          // SARIF's own mechanism for a reviewed, accepted result: code-scanning UIs hide it by default.
+          ...(finding.accepted ? { suppressions: [{ kind: "external", justification: finding.accepted.reason }] } : {}),
         })),
         // Surface untested checks as results too, so a CI dashboard cannot show a clean run for a
         // scan that never executed. A fault is a warning; a legitimately inconclusive check is a
