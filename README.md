@@ -85,13 +85,15 @@ A model may help *author* a plan (`compile --llm`, §15). It never takes part in
 npm install -g trinker      # or: npx trinker <command>
 
 cd path/to/your/authorized-target
-trinker init                # writes .trinker/runtime.json (local, gitignored)
+trinker init                # writes .trinker/runtime.json (holds credentials)
+# init does not touch your .gitignore. Keep local state out of git yourself:
+printf '%s\n' .trinker/runtime.json .trinker/latest-report.json .trinker/proposal.json .trinker/reports/ >> .gitignore
 trinker compile             # extracts routes into .trinker/plan.json
 # or, when the surface is not recoverable from source:
 trinker compile --openapi openapi.yaml    # JSON or YAML
 trinker compile --har traffic.har         # traffic recorded in a browser or proxy
 # Author identities, fixtures, invariants and checks: docs/PLAN_AUTHORING.md
-# (or have a model propose them: trinker compile --llm, §15)
+# (or have a model propose them: trinker compile --llm, see docs/LLM_COMPILER.md)
 trinker run --ci --format sarif
 ```
 
@@ -127,7 +129,7 @@ flowchart TB
     end
 
     PLAN[(".trinker/plan.json<br/>committed · secret-free")]
-    RT[(".trinker/runtime.json<br/>local · gitignored<br/>URLs · credentials · fixtures")]
+    RT[(".trinker/runtime.json<br/>local · never committed<br/>URLs · credentials · fixtures")]
 
     subgraph Run["RUN — cheap, every PR, zero tokens"]
         CORE["@trinker_vul/core runPlan()<br/>safety preflight → dispatch"]
@@ -291,13 +293,17 @@ appears or a scan-path package gains a provider dependency.
 
 ```
 .trinker/
-├── plan.json            committed   the reviewed security artifact
-├── baseline.json        committed   reviewed, risk-accepted checks (§11.3)
-├── runtime.json         gitignored  targets, credentials, fixtures, values, mutation flag
-├── proposal.json        gitignored  last LLM proposal awaiting review (§15)
-├── latest-report.json   gitignored  last scan (read by verify / accept / report / coverage)
-└── reports/             gitignored  exported reports
+├── plan.json            commit        the reviewed security artifact
+├── baseline.json        commit        reviewed, risk-accepted checks (§11.3)
+├── runtime.json         never commit  targets, credentials, fixtures, values, mutation flag
+├── proposal.json        don't commit  last LLM proposal awaiting review (§15)
+├── latest-report.json   don't commit  last scan (read by verify / accept / report / coverage)
+└── reports/             don't commit  exported reports (evidence can contain response data)
 ```
+
+`trinker init` does **not** edit your `.gitignore`. Add the last four entries
+yourself (see §2). This repository's own `.gitignore` does it with unanchored
+`**/.trinker/…` patterns, which is a good template.
 
 The split between the first and third file is the core of the safety model.
 **`plan.json` refers to everything sensitive by key only.** It holds no target
